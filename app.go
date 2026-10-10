@@ -4,55 +4,38 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/libp2p/go-libp2p"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	"github.com/pion/webrtc/v4"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const VERCEL_URL = "https://server-chat-vercel.vercel.app/api"
-
-// Nodos Bootstrap públicos globales de IPFS/libp2p para descubrimiento en Internet
-var BOOTSTRAP_PEERS = []string{
-	"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bf3Jw2392QJ5jL2522M993P49gQb8M24B8R38",
-	"/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSBvM73kWWAj66RPhnczX8b563A2U32C2L6",
-	"/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDM1awE2225g73KND5y4v4nTEX369nf72553x5Kx8z",
-}
 
 type Message struct {
 	Sender string `json:"sender"`
 	Text   string `json:"text"`
 }
 
-type discoveryNotifer struct {
-	h host.Host
-}
-
-func (n *discoveryNotifer) HandlePeerFound(pi peer.AddrInfo) {
-	_ = n.h.Connect(context.Background(), pi)
+type NodeInfo struct {
+	Code      string `json:"code"`
+	MultiAddr string `json:"multiAddr"`
 }
 
 type App struct {
 	ctx      context.Context
 	username string
-	host     host.Host
-	ps       *pubsub.PubSub
-	topic    *pubsub.Topic
-	sub      *pubsub.Subscription
 	myCode   string
+	activePC *webrtc.PeerConnection
+	activeDC *webrtc.DataChannel
+	stopPoll chan struct{}
 	mu       sync.Mutex
 }
 
@@ -75,201 +58,312 @@ func (a *App) SetUsername(name string) string {
 	return a.username
 }
 
-func getOrCreateIdentity(port string) (crypto.PrivKey, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
+func generateRoomCode() string {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	for i := range b {
+		b[i] = chars[int(b[i])%len(chars)]
 	}
+	return string(b)
+}
 
-	configDir := filepath.Join(homeDir, ".chat_p2p")
-	_ = os.MkdirAll(configDir, 0700)
-
-	keyFilename := fmt.Sprintf("identity_%s.key", port)
-	keyPath := filepath.Join(configDir, keyFilename)
-
-	if data, err := os.ReadFile(keyPath); err == nil {
-		return crypto.UnmarshalPrivateKey(data)
+func getRTCConfig() webrtc.Configuration {
+	return webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{
+				URLs: []string{
+					"stun:stun.l.google.com:19302",
+					"stun:stun1.l.google.com:19302",
+					"stun:stun2.l.google.com:19302",
+				},
+			},
+		},
 	}
+}
 
-	priv, _, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, rand.Reader)
-	if err != nil {
-		return nil, err
-	}
+func (a *App) setupDataChannel(dc *webrtc.DataChannel) {
+	a.mu.Lock()
+	a.activeDC = dc
+	a.mu.Unlock()
 
-	data, err := crypto.MarshalPrivateKey(priv)
-	if err != nil {
-		return nil, err
-	}
+	dc.OnOpen(func() {
+		runtime.EventsEmit(a.ctx, "peer_connected", "Canal de chat WebRTC conectado")
+	})
 
-	_ = os.WriteFile(keyPath, data, 0600)
-	return priv, nil
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		var chatMsg Message
+		if err := json.Unmarshal(msg.Data, &chatMsg); err == nil {
+			runtime.EventsEmit(a.ctx, "receive_message", chatMsg)
+		}
+	})
+
+	dc.OnClose(func() {
+		a.mu.Lock()
+		if a.activeDC == dc {
+			a.activeDC = nil
+		}
+		a.mu.Unlock()
+	})
 }
 
 func (a *App) StartServer(port string) string {
-	var err error
+	a.mu.Lock()
+	if a.stopPoll != nil {
+		close(a.stopPoll)
+	}
+	if a.activePC != nil {
+		_ = a.activePC.Close()
+	}
+	a.stopPoll = make(chan struct{})
+	a.myCode = generateRoomCode()
+	stopChan := a.stopPoll
+	code := a.myCode
+	a.mu.Unlock()
 
-	privKey, err := getOrCreateIdentity(port)
+	pc, err := webrtc.NewPeerConnection(getRTCConfig())
 	if err != nil {
-		return fmt.Sprintf("Error cargando identidad: %s", err.Error())
-	}
-
-	listenAddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port)
-
-	// Habilitamos AutoRelay explícito para obtener una Multiaddr de circuito cuando estemos tras NAT estricto
-	a.host, err = libp2p.New(
-		libp2p.Identity(privKey),
-		libp2p.ListenAddrStrings(listenAddr),
-		libp2p.EnableNATService(),
-		libp2p.EnableRelayService(),
-		libp2p.EnableAutoRelayWithStaticRelays(getBootstrapPeerInfos()),
-		libp2p.EnableHolePunching(),
-		libp2p.NATPortMap(),
-	)
-	if err != nil {
-		return fmt.Sprintf("Error iniciando libp2p: %s", err.Error())
-	}
-
-	peerIDStr := a.host.ID().String()
-	a.myCode = strings.ToUpper(peerIDStr[len(peerIDStr)-6:])
-
-	// Conectar a nodos Bootstrap públicos para estar en la red global
-	go a.connectToBootstrapPeers()
-
-	a.ps, err = pubsub.NewGossipSub(a.ctx, a.host)
-	if err != nil {
-		return fmt.Sprintf("Error iniciando GossipSub: %s", err.Error())
-	}
-
-	a.topic, err = a.ps.Join("chat-general")
-	if err != nil {
-		return fmt.Sprintf("Error uniendo al canal: %s", err.Error())
-	}
-
-	a.sub, err = a.topic.Subscribe()
-	if err != nil {
-		return fmt.Sprintf("Error suscribiendo: %s", err.Error())
-	}
-
-	ser := mdns.NewMdnsService(a.host, "p2p-chat-mdns", &discoveryNotifer{h: a.host})
-	_ = ser.Start()
-
-	go func() {
-		// Esperar 5 segundos a que libp2p obtenga una ruta de circuito por Relay
-		time.Sleep(5 * time.Second)
-		a.RegisterInVercel()
-		ticker := time.NewTicker(15 * time.Second)
-		for range ticker.C {
-			a.RegisterInVercel()
-		}
-	}()
-
-	go a.listenLoop()
-
-	return fmt.Sprintf("Nodo Activo en puerto %s. ID: %s", port, a.myCode)
-}
-
-func getBootstrapPeerInfos() []peer.AddrInfo {
-	var infos []peer.AddrInfo
-	for _, addr := range BOOTSTRAP_PEERS {
-		info, err := peer.AddrInfoFromString(addr)
-		if err == nil {
-			infos = append(infos, *info)
-		}
-	}
-	return infos
-}
-
-func (a *App) connectToBootstrapPeers() {
-	var wg sync.WaitGroup
-	for _, peerAddr := range BOOTSTRAP_PEERS {
-		addrInfo, err := peer.AddrInfoFromString(peerAddr)
-		if err != nil {
-			continue
-		}
-		wg.Add(1)
-		go func(info peer.AddrInfo) {
-			defer wg.Done()
-			_ = a.host.Connect(a.ctx, info)
-		}(*addrInfo)
-	}
-	wg.Wait()
-}
-
-func (a *App) getMultiAddr() string {
-	if a.host == nil {
-		return ""
-	}
-
-	peerID := a.host.ID().String()
-
-	// 1. Buscar direcciones públicas o de circuito relay primero
-	for _, addr := range a.host.Addrs() {
-		addrStr := addr.String()
-		if !strings.Contains(addrStr, "127.0.0.1") && !strings.Contains(addrStr, "192.168.") && !strings.Contains(addrStr, "10.") {
-			return fmt.Sprintf("%s/p2p/%s", addrStr, peerID)
-		}
-	}
-
-	// 2. Si aún no hay IP pública, usar IP local privada
-	for _, addr := range a.host.Addrs() {
-		addrStr := addr.String()
-		if !strings.Contains(addrStr, "127.0.0.1") && strings.Contains(addrStr, "/ip4/") {
-			return fmt.Sprintf("%s/p2p/%s", addrStr, peerID)
-		}
-	}
-
-	addrs := a.host.Addrs()
-	if len(addrs) > 0 {
-		return fmt.Sprintf("%s/p2p/%s", addrs[0].String(), peerID)
-	}
-	return ""
-}
-
-func (a *App) GetMyCode() string {
-	return a.myCode
-}
-
-func (a *App) ConnectToPeer(input string) string {
-	if a.host == nil {
-		return "Debes iniciar el servidor primero"
-	}
-
-	target := strings.TrimSpace(input)
-
-	if len(target) == 6 && !strings.HasPrefix(target, "/ip4/") && !strings.HasPrefix(target, "/dnsaddr/") {
-		resolvedAddr := a.ResolveCodeInVercel(target)
-		if resolvedAddr == "" {
-			return fmt.Sprintf("No se encontró ninguna dirección asociada al código %s en Vercel", target)
-		}
-		target = resolvedAddr
-	}
-
-	info, err := peer.AddrInfoFromString(target)
-	if err != nil {
-		return fmt.Sprintf("Dirección inválida: %s", err.Error())
-	}
-
-	// Limpiar el historial de intentos fallidos para eliminar la restricción "dial backoff"
-	a.host.Peerstore().ClearAddrs(info.ID)
-
-	ctxWithTimeout, cancel := context.WithTimeout(a.ctx, 20*time.Second)
-	defer cancel()
-
-	if err := a.host.Connect(ctxWithTimeout, *info); err != nil {
-		return fmt.Sprintf("Error conectando con peer: %s", err.Error())
-	}
-
-	return fmt.Sprintf("Conectado exitosamente con %s", info.ID.String()[:8])
-}
-
-func (a *App) SendMessage(text string) string {
-	if a.topic == nil {
-		return "Error: No estás conectado a ningún canal"
+		return fmt.Sprintf("Error creando PeerConnection: %s", err.Error())
 	}
 
 	a.mu.Lock()
+	a.activePC = pc
+	a.mu.Unlock()
+
+	dc, err := pc.CreateDataChannel("chat", nil)
+	if err != nil {
+		return fmt.Sprintf("Error creando canal de datos: %s", err.Error())
+	}
+	a.setupDataChannel(dc)
+
+	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		if state == webrtc.ICEConnectionStateConnected {
+			runtime.EventsEmit(a.ctx, "peer_connected", "Conexión WebRTC directa establecida")
+		}
+	})
+
+	gatherComplete := webrtc.GatheringCompletePromise(pc)
+
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		return fmt.Sprintf("Error creando oferta: %s", err.Error())
+	}
+
+	if err := pc.SetLocalDescription(offer); err != nil {
+		return fmt.Sprintf("Error configurando oferta local: %s", err.Error())
+	}
+
+	// Esperar recolección de candidatos STUN de Google
+	select {
+	case <-gatherComplete:
+	case <-time.After(5 * time.Second):
+	}
+
+	localOffer := pc.LocalDescription()
+	offerBytes, err := json.Marshal(localOffer)
+	if err != nil {
+		return "Error codificando oferta local"
+	}
+	offerBase64 := base64.StdEncoding.EncodeToString(offerBytes)
+
+	// Subir oferta a Vercel
+	payload := map[string]string{
+		"code":  code,
+		"offer": offerBase64,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	resp, err := http.Post(VERCEL_URL, "application/json", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return fmt.Sprintf("Error comunicando con Vercel: %s", err.Error())
+	}
+	_ = resp.Body.Close()
+
+	// Iniciar sondeo en segundo plano para recibir el Answer del Guest
+	go a.pollForAnswer(code, pc, stopChan)
+
+	return fmt.Sprintf("Sala WebRTC creada. Tu código es: %s", code)
+}
+
+func (a *App) pollForAnswer(code string, pc *webrtc.PeerConnection, stopChan <-chan struct{}) {
+	ticker := time.NewTicker(1500 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.After(5 * time.Minute)
+
+	for {
+		select {
+		case <-stopChan:
+			return
+		case <-timeout:
+			return
+		case <-ticker.C:
+			if pc.ConnectionState() == webrtc.PeerConnectionStateConnected {
+				return
+			}
+
+			resp, err := http.Get(fmt.Sprintf("%s?code=%s", VERCEL_URL, code))
+			if err != nil {
+				continue
+			}
+
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil || resp.StatusCode != http.StatusOK {
+				continue
+			}
+
+			var res struct {
+				Answer string `json:"answer"`
+			}
+			if err := json.Unmarshal(body, &res); err == nil && res.Answer != "" {
+				sdpBytes, err := base64.StdEncoding.DecodeString(res.Answer)
+				if err != nil {
+					continue
+				}
+
+				var answer webrtc.SessionDescription
+				if err := json.Unmarshal(sdpBytes, &answer); err == nil {
+					if pc.RemoteDescription() == nil {
+						_ = pc.SetRemoteDescription(answer)
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+func (a *App) ConnectToPeer(input string) string {
+	raw := strings.TrimSpace(input)
+	code := raw
+
+	if strings.Contains(code, "Código: ") {
+		parts := strings.Split(code, "Código: ")
+		if len(parts) > 1 {
+			code = strings.TrimSpace(parts[1])
+		}
+	} else if len(code) > 6 && strings.Contains(code, "/p2p/") {
+		parts := strings.Split(code, "/p2p/")
+		if len(parts) > 1 {
+			id := parts[len(parts)-1]
+			if len(id) >= 6 {
+				code = id[len(id)-6:]
+			}
+		}
+	}
+
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if len(code) != 6 {
+		return fmt.Sprintf("Código inválido (%s). Debe tener 6 caracteres.", code)
+	}
+
+	// 1. Obtener la oferta desde Vercel
+	resp, err := http.Get(fmt.Sprintf("%s?code=%s", VERCEL_URL, code))
+	if err != nil {
+		return fmt.Sprintf("Error conectando con Vercel: %s", err.Error())
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Sprintf("Código %s no encontrado o expirado en Vercel", code)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "Error leyendo respuesta de Vercel"
+	}
+
+	var res struct {
+		Offer string `json:"offer"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil || res.Offer == "" {
+		return fmt.Sprintf("El código %s aún no tiene una oferta válida lista", code)
+	}
+
+	sdpBytes, err := base64.StdEncoding.DecodeString(res.Offer)
+	if err != nil {
+		return "Error decodificando oferta SDP"
+	}
+
+	var offer webrtc.SessionDescription
+	if err := json.Unmarshal(sdpBytes, &offer); err != nil {
+		return "Error procesando oferta SDP"
+	}
+
+	// 2. Crear PeerConnection del Guest
+	pc, err := webrtc.NewPeerConnection(getRTCConfig())
+	if err != nil {
+		return fmt.Sprintf("Error creando WebRTC: %s", err.Error())
+	}
+
+	a.mu.Lock()
+	if a.activePC != nil {
+		_ = a.activePC.Close()
+	}
+	a.activePC = pc
+	a.mu.Unlock()
+
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		a.setupDataChannel(dc)
+	})
+
+	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		if state == webrtc.ICEConnectionStateConnected {
+			runtime.EventsEmit(a.ctx, "peer_connected", "Conectado vía WebRTC P2P")
+		}
+	})
+
+	if err := pc.SetRemoteDescription(offer); err != nil {
+		return fmt.Sprintf("Error configurando oferta remota: %s", err.Error())
+	}
+
+	gatherComplete := webrtc.GatheringCompletePromise(pc)
+
+	answer, err := pc.CreateAnswer(nil)
+	if err != nil {
+		return fmt.Sprintf("Error generando respuesta WebRTC: %s", err.Error())
+	}
+
+	if err := pc.SetLocalDescription(answer); err != nil {
+		return fmt.Sprintf("Error configurando respuesta local: %s", err.Error())
+	}
+
+	select {
+	case <-gatherComplete:
+	case <-time.After(5 * time.Second):
+	}
+
+	localAnswer := pc.LocalDescription()
+	answerBytes, err := json.Marshal(localAnswer)
+	if err != nil {
+		return "Error codificando respuesta"
+	}
+	answerBase64 := base64.StdEncoding.EncodeToString(answerBytes)
+
+	// 3. Enviar Answer a Vercel
+	payload := map[string]string{
+		"code":   code,
+		"answer": answerBase64,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	postResp, err := http.Post(VERCEL_URL, "application/json", bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return fmt.Sprintf("Error enviando respuesta a Vercel: %s", err.Error())
+	}
+	_ = postResp.Body.Close()
+
+	return fmt.Sprintf("Respuesta enviada a %s. Conectando P2P vía Google STUN...", code)
+}
+
+func (a *App) SendMessage(text string) string {
+	a.mu.Lock()
+	dc := a.activeDC
 	currentUser := a.username
 	a.mu.Unlock()
+
+	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+		return "Error: No estás conectado a ningún peer actualmente"
+	}
 
 	msg := Message{
 		Sender: currentUser,
@@ -281,30 +375,20 @@ func (a *App) SendMessage(text string) string {
 		return "Error codificando mensaje"
 	}
 
-	if err := a.topic.Publish(a.ctx, data); err != nil {
-		return fmt.Sprintf("Error publicando: %s", err.Error())
+	if err := dc.SendText(string(data)); err != nil {
+		return fmt.Sprintf("Error enviando mensaje: %s", err.Error())
 	}
+
+	// Emitir también localmente para que el remitente vea su mensaje en la lista
+	runtime.EventsEmit(a.ctx, "receive_message", msg)
 
 	return "Enviado"
 }
 
-func (a *App) listenLoop() {
-	for {
-		msg, err := a.sub.Next(a.ctx)
-		if err != nil {
-			return
-		}
-
-		var chatMsg Message
-		if err := json.Unmarshal(msg.Data, &chatMsg); err == nil {
-			runtime.EventsEmit(a.ctx, "receive_message", chatMsg)
-		}
-	}
-}
-
-type NodeInfo struct {
-	Code      string `json:"code"`
-	MultiAddr string `json:"multiAddr"`
+func (a *App) GetMyCode() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.myCode
 }
 
 func (a *App) GetNodeInfo() NodeInfo {
@@ -312,43 +396,6 @@ func (a *App) GetNodeInfo() NodeInfo {
 	defer a.mu.Unlock()
 	return NodeInfo{
 		Code:      a.myCode,
-		MultiAddr: a.getMultiAddr(),
+		MultiAddr: a.myCode,
 	}
-}
-
-func (a *App) RegisterInVercel() {
-	if a.myCode == "" {
-		return
-	}
-
-	payload := map[string]string{
-		"code":      a.myCode,
-		"multiAddr": a.getMultiAddr(),
-	}
-
-	jsonData, _ := json.Marshal(payload)
-	resp, err := http.Post(VERCEL_URL, "application/json", bytes.NewBuffer(jsonData))
-	if err == nil && resp != nil {
-		_ = resp.Body.Close()
-	}
-}
-
-func (a *App) ResolveCodeInVercel(code string) string {
-	resp, err := http.Get(fmt.Sprintf("%s?code=%s", VERCEL_URL, strings.ToUpper(code)))
-	if err != nil {
-		return ""
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return ""
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	var result struct {
-		MultiAddr string `json:"multiAddr"`
-	}
-	_ = json.Unmarshal(body, &result)
-
-	return result.MultiAddr
 }

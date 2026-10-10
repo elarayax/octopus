@@ -7,9 +7,11 @@ function App() {
   const [username, setUsernameInput] = useState('Byron');
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
+  const [myPort, setMyPort] = useState('8080');
   const [peerAddress, setPeerAddress] = useState('');
   const [nodeInfo, setNodeInfo] = useState({ code: '', multiAddr: '' });
-  const [status, setStatus] = useState('⚪ Desconectado');
+  const [status, setStatus] = useState('⚪ Servidor no iniciado');
+  const [connectedPeers, setConnectedPeers] = useState([]);
 
   useEffect(() => {
     SetUsername(username);
@@ -20,12 +22,22 @@ function App() {
 
     const unsubConn = EventsOn('peer_connected', (msg) => {
       console.log('Peer conectado:', msg);
-      setStatus('🟢 Conectado vía WebRTC P2P');
+      setConnectedPeers((prev) => {
+        if (!prev.includes(msg)) return [...prev, msg];
+        return prev;
+      });
+      setStatus('🟢 En línea - P2P WebRTC');
+    });
+
+    const unsubDisconn = EventsOn('peer_disconnected', (peerId) => {
+      console.log('Peer desconectado:', peerId);
+      setConnectedPeers((prev) => prev.filter((p) => !p.includes(peerId)));
     });
 
     return () => {
       unsubMsg();
       unsubConn();
+      unsubDisconn();
     };
   }, []);
 
@@ -35,8 +47,8 @@ function App() {
   };
 
   const handleStartServer = async () => {
-    setStatus('🟡 Creando sala y esperando al peer...');
-    const res = await StartServer('0');
+    setStatus('🟡 Servidor activo, esperando conexiones...');
+    const res = await StartServer(myPort);
     alert(res);
 
     const info = await GetNodeInfo();
@@ -45,7 +57,7 @@ function App() {
 
   const handleConnect = async () => {
     if (!peerAddress.trim()) return;
-    setStatus('🟡 Conectando con el peer...');
+    setStatus('🟡 Conectando con peer...');
     const res = await ConnectToPeer(peerAddress);
     alert(res);
   };
@@ -61,23 +73,26 @@ function App() {
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
-    alert(`¡Código "${text}" copiado al portapapeles!`);
+    alert(`¡ID Fijo "${text}" copiado al portapapeles!`);
   };
 
   return (
     <div style={{ padding: '20px', color: '#fff', textAlign: 'left', maxWidth: '600px', margin: '0 auto' }}>
-      <h2>Chat P2P - WebRTC Nativo</h2>
+      <h2>Chat P2P - Identidad Fija & Grupal</h2>
 
-      {/* Estado de Conexión */}
+      {/* Barra de Estado */}
       <div style={{
         padding: '8px 12px',
         backgroundColor: '#1f2430',
         borderRadius: '6px',
         marginBottom: '15px',
         fontSize: '0.9em',
-        border: '1px solid #3d4455'
+        border: '1px solid #3d4455',
+        display: 'flex',
+        justifyContent: 'space-between'
       }}>
-        <strong>Estado:</strong> <span>{status}</span>
+        <div><strong>Estado:</strong> <span>{status}</span></div>
+        <div><strong>Peers activos:</strong> <span style={{ color: '#4caf50' }}>{connectedPeers.length}</span></div>
       </div>
 
       {/* Nombre de Usuario */}
@@ -90,17 +105,19 @@ function App() {
         <button onClick={handleSaveUsername}>Guardar Nombre</button>
       </div>
 
-      {/* Crear Sala */}
+      {/* Servidor Local con Puerto */}
       <div style={{ marginBottom: '15px' }}>
-        <button
-          onClick={handleStartServer}
-          style={{ backgroundColor: '#2e7d32', color: '#fff', fontWeight: 'bold' }}
-        >
-          🚀 Crear Sala WebRTC
+        <input
+          value={myPort}
+          onChange={(e) => setMyPort(e.target.value)}
+          placeholder="Puerto (ej: 8080)"
+        />
+        <button onClick={handleStartServer} style={{ backgroundColor: '#2e7d32', color: '#fff' }}>
+          Iniciar Servidor
         </button>
       </div>
 
-      {/* Panel con Código de Sala */}
+      {/* Panel con Tu ID Fijo de Máquina */}
       {nodeInfo.code && (
         <div style={{
           backgroundColor: '#2a2d3e',
@@ -109,29 +126,29 @@ function App() {
           marginBottom: '15px',
           border: '1px solid #4a4d6e'
         }}>
-          <div><strong>Código de tu Sala:</strong> <span style={{ fontSize: '1.4em', color: '#4caf50', fontWeight: 'bold' }}>{nodeInfo.code}</span></div>
+          <div><strong>Tu ID Fijo:</strong> <span style={{ fontSize: '1.4em', color: '#4caf50', fontWeight: 'bold' }}>{nodeInfo.code}</span></div>
           <div style={{ fontSize: '0.8em', color: '#aaa', marginTop: '5px' }}>
-            Comparte este código de 6 letras con tu amigo para que se conecte por Internet sin importar en qué red esté.
+            Este ID es permanente para este puerto. Tus amigos pueden usarlo para conectarse contigo siempre.
           </div>
           <button
             onClick={() => copyToClipboard(nodeInfo.code)}
             style={{ marginTop: '8px', fontSize: '0.85em', padding: '6px 12px', cursor: 'pointer' }}
           >
-            📋 Copiar Código para invitar
+            📋 Copiar ID Fijo para invitar
           </button>
         </div>
       )}
 
-      {/* Conectar a Sala */}
+      {/* Conexión a Peer */}
       <div style={{ marginBottom: '20px' }}>
         <input
           value={peerAddress}
           onChange={(e) => setPeerAddress(e.target.value)}
-          placeholder="Pega el código de 6 letras de tu amigo..."
+          placeholder="Pega el ID Fijo de tu amigo (6 letras)..."
           style={{ width: '65%', marginRight: '5px' }}
         />
         <button onClick={handleConnect} style={{ backgroundColor: '#1976d2', color: '#fff' }}>
-          Unirse a Sala
+          Conectar
         </button>
       </div>
 
@@ -146,7 +163,7 @@ function App() {
       }}>
         {messages.length === 0 ? (
           <div style={{ color: '#666', fontStyle: 'italic', marginTop: '80px', textAlign: 'center' }}>
-            No hay mensajes aún. ¡Conéctate con un peer para chatear!
+            No hay mensajes aún. ¡Inicia el servidor y conéctate con tus amigos!
           </div>
         ) : (
           messages.map((m, i) => (

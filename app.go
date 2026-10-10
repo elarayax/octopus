@@ -23,8 +23,14 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Asegúrate de incluir /api al final si colocaste tu index.js en la carpeta api/
 const VERCEL_URL = "https://server-chat-vercel.vercel.app/api"
+
+// Nodos Bootstrap públicos globales de IPFS/libp2p para descubrimiento en Internet
+var BOOTSTRAP_PEERS = []string{
+	"/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bf3Jw2392QJ5jL2522M993P49gQb8M24B8R38",
+	"/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSBvM73kWWAj66RPhnczX8b563A2U32C2L6",
+	"/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDM1awE2225g73KND5y4v4nTEX369nf72553x5Kx8z",
+}
 
 type Message struct {
 	Sender string `json:"sender"`
@@ -102,31 +108,30 @@ func getOrCreateIdentity(port string) (crypto.PrivKey, error) {
 func (a *App) StartServer(port string) string {
 	var err error
 
-	// 1. Cargar o crear identidad asociada al puerto local
 	privKey, err := getOrCreateIdentity(port)
 	if err != nil {
 		return fmt.Sprintf("Error cargando identidad: %s", err.Error())
 	}
 
-	// 2. Iniciar Host libp2p
 	listenAddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port)
 	a.host, err = libp2p.New(
 		libp2p.Identity(privKey),
 		libp2p.ListenAddrStrings(listenAddr),
-		libp2p.EnableNATService(),   // AutoNAT
-		libp2p.EnableRelayService(), // Permitir actuar/usar Relay
-		libp2p.EnableHolePunching(), // Perforación automática de router (NAT Punching)
+		libp2p.EnableNATService(),
+		libp2p.EnableRelayService(),
+		libp2p.EnableHolePunching(),
 		libp2p.NATPortMap(),
 	)
 	if err != nil {
 		return fmt.Sprintf("Error iniciando libp2p: %s", err.Error())
 	}
 
-	// 3. Generar Código Único de 6 caracteres
 	peerIDStr := a.host.ID().String()
 	a.myCode = strings.ToUpper(peerIDStr[len(peerIDStr)-6:])
 
-	// 4. Inicializar GossipSub
+	// Conectar a nodos Bootstrap públicos para estar en la red global
+	go a.connectToBootstrapPeers()
+
 	a.ps, err = pubsub.NewGossipSub(a.ctx, a.host)
 	if err != nil {
 		return fmt.Sprintf("Error iniciando GossipSub: %s", err.Error())
@@ -142,14 +147,14 @@ func (a *App) StartServer(port string) string {
 		return fmt.Sprintf("Error suscribiendo: %s", err.Error())
 	}
 
-	// 5. Descubrimiento local mDNS
 	ser := mdns.NewMdnsService(a.host, "p2p-chat-mdns", &discoveryNotifer{h: a.host})
 	_ = ser.Start()
 
-	// 6. Registrar en Vercel de inmediato y mantener registro activo cada 30 segundos
 	go func() {
+		// Esperar 3 segundos para que libp2p resuelva direcciones públicas
+		time.Sleep(3 * time.Second)
 		a.RegisterInVercel()
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(20 * time.Second)
 		for range ticker.C {
 			a.RegisterInVercel()
 		}
@@ -160,7 +165,22 @@ func (a *App) StartServer(port string) string {
 	return fmt.Sprintf("Nodo Activo en puerto %s. ID: %s", port, a.myCode)
 }
 
-// Devuelve la Multiaddr del equipo omitiendo direcciones loopback (127.0.0.1)
+func (a *App) connectToBootstrapPeers() {
+	var wg sync.WaitGroup
+	for _, peerAddr := range BOOTSTRAP_PEERS {
+		addrInfo, err := peer.AddrInfoFromString(peerAddr)
+		if err != nil {
+			continue
+		}
+		wg.Add(1)
+		go func(info peer.AddrInfo) {
+			defer wg.Done()
+			_ = a.host.Connect(a.ctx, info)
+		}(*addrInfo)
+	}
+	wg.Wait()
+}
+
 func (a *App) getMultiAddr() string {
 	if a.host == nil {
 		return ""
@@ -168,7 +188,15 @@ func (a *App) getMultiAddr() string {
 
 	peerID := a.host.ID().String()
 
-	// Busca la IP privada real (ej: 192.168.x.x o 10.x.x.x)
+	// 1. Buscar direcciones públicas o de circuito relay primero
+	for _, addr := range a.host.Addrs() {
+		addrStr := addr.String()
+		if !strings.Contains(addrStr, "127.0.0.1") && !strings.Contains(addrStr, "192.168.") && !strings.Contains(addrStr, "10.") {
+			return fmt.Sprintf("%s/p2p/%s", addrStr, peerID)
+		}
+	}
+
+	// 2. Si aún no hay IP pública, usar IP local privada
 	for _, addr := range a.host.Addrs() {
 		addrStr := addr.String()
 		if !strings.Contains(addrStr, "127.0.0.1") && strings.Contains(addrStr, "/ip4/") {
@@ -176,7 +204,6 @@ func (a *App) getMultiAddr() string {
 		}
 	}
 
-	// Si no encuentra una IP distinta, retorna la primera
 	addrs := a.host.Addrs()
 	if len(addrs) > 0 {
 		return fmt.Sprintf("%s/p2p/%s", addrs[0].String(), peerID)
@@ -195,8 +222,7 @@ func (a *App) ConnectToPeer(input string) string {
 
 	target := strings.TrimSpace(input)
 
-	// Si el usuario ingresa un código de 6 caracteres
-	if len(target) == 6 && !strings.HasPrefix(target, "/ip4/") {
+	if len(target) == 6 && !strings.HasPrefix(target, "/ip4/") && !strings.HasPrefix(target, "/dnsaddr/") {
 		resolvedAddr := a.ResolveCodeInVercel(target)
 		if resolvedAddr == "" {
 			return fmt.Sprintf("No se encontró ninguna dirección asociada al código %s en Vercel", target)
@@ -209,7 +235,10 @@ func (a *App) ConnectToPeer(input string) string {
 		return fmt.Sprintf("Dirección inválida: %s", err.Error())
 	}
 
-	if err := a.host.Connect(a.ctx, *info); err != nil {
+	ctxWithTimeout, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+
+	if err := a.host.Connect(ctxWithTimeout, *info); err != nil {
 		return fmt.Sprintf("Error conectando con peer: %s", err.Error())
 	}
 

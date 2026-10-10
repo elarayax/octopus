@@ -113,6 +113,10 @@ func (a *App) StartServer(port string) string {
 	a.host, err = libp2p.New(
 		libp2p.Identity(privKey),
 		libp2p.ListenAddrStrings(listenAddr),
+		libp2p.EnableNATService(),   // AutoNAT
+		libp2p.EnableRelayService(), // Permitir actuar/usar Relay
+		libp2p.EnableHolePunching(), // Perforación automática de router (NAT Punching)
+		libp2p.NATPortMap(),
 	)
 	if err != nil {
 		return fmt.Sprintf("Error iniciando libp2p: %s", err.Error())

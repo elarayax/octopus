@@ -13,3 +13,5 @@ export function SendMessage(arg1:string):Promise<string>;
 export function SetUsername(arg1:string):Promise<string>;
 
 export function StartServer(arg1:string):Promise<string>;
+
+export function SendAudio(arg1:string):Promise<string>;

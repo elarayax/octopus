@@ -27,6 +27,13 @@ type Message struct {
 	Text   string `json:"text"`
 }
 
+type Packet struct {
+	Type   string `json:"type"`            // "text" or "audio"
+	Sender string `json:"sender"`
+	Text   string `json:"text,omitempty"`
+	Audio  string `json:"audio,omitempty"` // base64 encoded PCM chunk
+}
+
 type NodeInfo struct {
 	Code      string `json:"code"`
 	MultiAddr string `json:"multiAddr"`
@@ -203,9 +210,17 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		var chatMsg Message
-		if err := json.Unmarshal(msg.Data, &chatMsg); err == nil {
-			runtime.EventsEmit(a.ctx, "receive_message", chatMsg)
+		var pkt Packet
+		if err := json.Unmarshal(msg.Data, &pkt); err == nil {
+			if pkt.Type == "audio" {
+				runtime.EventsEmit(a.ctx, "receive_audio", pkt.Audio)
+			} else {
+				chatMsg := Message{
+					Sender: pkt.Sender,
+					Text:   pkt.Text,
+				}
+				runtime.EventsEmit(a.ctx, "receive_message", chatMsg)
+			}
 
 			// Reenviar a los demás peers conectados (enrutamiento grupal)
 			a.mu.Lock()
@@ -463,12 +478,13 @@ func (a *App) SendMessage(text string) string {
 		return "Error: No hay ningún peer conectado actualmente"
 	}
 
-	msg := Message{
+	pkt := Packet{
+		Type:   "text",
 		Sender: currentUser,
 		Text:   text,
 	}
 
-	data, err := json.Marshal(msg)
+	data, err := json.Marshal(pkt)
 	if err != nil {
 		return "Error codificando mensaje"
 	}
@@ -483,11 +499,45 @@ func (a *App) SendMessage(text string) string {
 	}
 
 	if sent > 0 {
-		runtime.EventsEmit(a.ctx, "receive_message", msg)
+		runtime.EventsEmit(a.ctx, "receive_message", Message{Sender: currentUser, Text: text})
 		return "Enviado"
 	}
 
 	return "Error: No se pudo enviar el mensaje a los peers conectados"
+}
+
+func (a *App) SendAudio(audioB64 string) string {
+	a.mu.Lock()
+	currentUser := a.username
+	sessions := make([]*PeerSession, 0, len(a.peers))
+	for _, s := range a.peers {
+		sessions = append(sessions, s)
+	}
+	a.mu.Unlock()
+
+	if len(sessions) == 0 {
+		return "No peers"
+	}
+
+	pkt := Packet{
+		Type:   "audio",
+		Sender: currentUser,
+		Audio:  audioB64,
+	}
+
+	data, err := json.Marshal(pkt)
+	if err != nil {
+		return "Error"
+	}
+
+	str := string(data)
+	for _, s := range sessions {
+		if s.dc != nil && s.dc.ReadyState() == webrtc.DataChannelStateOpen {
+			_ = s.dc.SendText(str)
+		}
+	}
+
+	return "OK"
 }
 
 func (a *App) GetMyCode() string {

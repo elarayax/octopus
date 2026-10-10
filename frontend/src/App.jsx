@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { StartServer, ConnectToPeer, SendMessage, SetUsername, GetNodeInfo } from "../wailsjs/go/main/App";
+import { StartServer, ConnectToPeer, SendMessage, SetUsername, GetNodeInfo, SendAudio } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
 function App() {
@@ -13,13 +13,27 @@ function App() {
   const [status, setStatus] = useState('⚪ Servidor no iniciado');
   const [connectedPeers, setConnectedPeers] = useState([]);
 
+  // Estados de Llamada de Voz Continua
+  const [inVoiceCall, setInVoiceCall] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [remoteSpeaking, setRemoteSpeaking] = useState(false);
+
+  const streamRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const playbackCtxRef = useRef(null);
+  const isMutedRef = useRef(false);
+  const nextPlayTimeRef = useRef(0);
+  const remoteSpeakingTimerRef = useRef(null);
+
   useEffect(() => {
     SetUsername(username);
 
+    // 1. Mensajes de texto
     const unsubMsg = EventsOn('receive_message', (msg) => {
       setMessages((prev) => [...prev, msg]);
     });
 
+    // 2. Conexiones P2P
     const unsubConn = EventsOn('peer_connected', (msg) => {
       console.log('Peer conectado:', msg);
       setConnectedPeers((prev) => {
@@ -34,12 +48,133 @@ function App() {
       setConnectedPeers((prev) => prev.filter((p) => !p.includes(peerId)));
     });
 
+    // 3. Audio en tiempo real (Llamada Continua)
+    const playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    playbackCtxRef.current = playbackCtx;
+    nextPlayTimeRef.current = playbackCtx.currentTime;
+
+    const unsubAudio = EventsOn('receive_audio', (b64Audio) => {
+      try {
+        setRemoteSpeaking(true);
+        if (remoteSpeakingTimerRef.current) clearTimeout(remoteSpeakingTimerRef.current);
+        remoteSpeakingTimerRef.current = setTimeout(() => setRemoteSpeaking(false), 500);
+
+        const binaryStr = atob(b64Audio);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        const int16 = new Int16Array(bytes.buffer);
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) {
+          float32[i] = int16[i] / 32768.0;
+        }
+
+        const audioBuffer = playbackCtx.createBuffer(1, float32.length, 16000);
+        audioBuffer.copyToChannel(float32, 0);
+
+        const bufferSource = playbackCtx.createBufferSource();
+        bufferSource.buffer = audioBuffer;
+        bufferSource.connect(playbackCtx.destination);
+
+        const now = playbackCtx.currentTime;
+        if (nextPlayTimeRef.current < now) {
+          nextPlayTimeRef.current = now + 0.02; // margen de 20ms
+        }
+        bufferSource.start(nextPlayTimeRef.current);
+        nextPlayTimeRef.current += audioBuffer.duration;
+      } catch (err) {
+        console.error('Error procesando audio recibido:', err);
+      }
+    });
+
     return () => {
       unsubMsg();
       unsubConn();
       unsubDisconn();
+      unsubAudio();
+      if (playbackCtxRef.current) playbackCtxRef.current.close();
     };
   }, []);
+
+  // Iniciar Llamada Continua
+  const startVoiceCall = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      });
+      streamRef.current = stream;
+
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      audioCtxRef.current = audioCtx;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      // Fragmentos de 2048 muestras (~128 ms a 16kHz) para transmisión continua
+      const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+
+      // Ganancia en 0 para evitar que el usuario se escuche a sí mismo (eco local)
+      const silentGain = audioCtx.createGain();
+      silentGain.gain.value = 0;
+
+      processor.onaudioprocess = (e) => {
+        if (isMutedRef.current) return;
+
+        const input = e.inputBuffer.getChannelData(0);
+        const int16 = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          let s = Math.max(-1, Math.min(1, input[i]));
+          int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        let binary = '';
+        const bytes = new Uint8Array(int16.buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const b64 = btoa(binary);
+        SendAudio(b64);
+      };
+
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(audioCtx.destination);
+
+      setInVoiceCall(true);
+      setIsMuted(false);
+      isMutedRef.current = false;
+    } catch (err) {
+      alert('Error activando micrófono: ' + err.message);
+    }
+  };
+
+  // Salir de Llamada Continua
+  const stopVoiceCall = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close();
+      audioCtxRef.current = null;
+    }
+    setInVoiceCall(false);
+  };
+
+  // Silenciar / Activar Micrófono
+  const toggleMute = () => {
+    setIsMuted((prev) => {
+      const next = !prev;
+      isMutedRef.current = next;
+      return next;
+    });
+  };
 
   const handleSaveUsername = async () => {
     const name = await SetUsername(username);
@@ -77,8 +212,8 @@ function App() {
   };
 
   return (
-    <div style={{ padding: '20px', color: '#fff', textAlign: 'left', maxWidth: '600px', margin: '0 auto' }}>
-      <h2>Chat P2P - Identidad Fija & Grupal</h2>
+    <div style={{ padding: '20px', color: '#fff', textAlign: 'left', maxWidth: '650px', margin: '0 auto' }}>
+      <h2>Chat P2P - Texto & Voz en Vivo</h2>
 
       {/* Barra de Estado */}
       <div style={{
@@ -93,6 +228,60 @@ function App() {
       }}>
         <div><strong>Estado:</strong> <span>{status}</span></div>
         <div><strong>Peers activos:</strong> <span style={{ color: '#4caf50' }}>{connectedPeers.length}</span></div>
+      </div>
+
+      {/* Panel de Llamada de Voz Continua (Discord Style) */}
+      <div style={{
+        padding: '12px 16px',
+        backgroundColor: inVoiceCall ? '#1e3a2f' : '#232733',
+        borderRadius: '8px',
+        marginBottom: '15px',
+        border: inVoiceCall ? '1px solid #4caf50' : '1px solid #3d4455',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}>
+        <div>
+          <strong style={{ fontSize: '1.05em' }}>📞 Canal de Voz en Vivo:</strong>
+          <div style={{ fontSize: '0.85em', color: inVoiceCall ? '#81c784' : '#aaa', marginTop: '3px' }}>
+            {inVoiceCall ? (
+              <span>🟢 En llamada continua {isMuted ? '(🔇 Micrófono Silenciado)' : '(🎙️ Micrófono Abierto)'}</span>
+            ) : (
+              <span>⚪ Fuera de llamada</span>
+            )}
+            {remoteSpeaking && <span style={{ marginLeft: '10px', color: '#64b5f6' }}>🔊 Alguien está hablando...</span>}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {!inVoiceCall ? (
+            <button
+              onClick={startVoiceCall}
+              style={{ backgroundColor: '#2e7d32', color: '#fff', padding: '6px 14px', fontWeight: 'bold' }}
+            >
+              🎙️ Unirse a Voz
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={toggleMute}
+                style={{
+                  backgroundColor: isMuted ? '#d32f2f' : '#388e3c',
+                  color: '#fff',
+                  padding: '6px 12px'
+                }}
+              >
+                {isMuted ? '🔇 Desmutear' : '🎙️ Mutear'}
+              </button>
+              <button
+                onClick={stopVoiceCall}
+                style={{ backgroundColor: '#c62828', color: '#fff', padding: '6px 12px' }}
+              >
+                🔴 Salir
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Nombre de Usuario */}
@@ -152,17 +341,17 @@ function App() {
         </button>
       </div>
 
-      {/* Historial de Mensajes */}
+      {/* Historial de Mensajes de Texto */}
       <div style={{
         border: '1px solid #444',
-        height: '220px',
+        height: '200px',
         overflowY: 'auto',
         padding: '10px',
         backgroundColor: '#1a1a1a',
         borderRadius: '8px'
       }}>
         {messages.length === 0 ? (
-          <div style={{ color: '#666', fontStyle: 'italic', marginTop: '80px', textAlign: 'center' }}>
+          <div style={{ color: '#666', fontStyle: 'italic', marginTop: '70px', textAlign: 'center' }}>
             No hay mensajes aún. ¡Inicia el servidor y conéctate con tus amigos!
           </div>
         ) : (
@@ -174,7 +363,7 @@ function App() {
         )}
       </div>
 
-      {/* Envío de Mensajes */}
+      {/* Envío de Mensajes de Texto */}
       <div style={{ marginTop: '10px' }}>
         <input
           value={inputText}

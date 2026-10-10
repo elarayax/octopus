@@ -25,3 +25,7 @@ export function SetUsername(arg1) {
 export function StartServer(arg1) {
   return window['go']['main']['App']['StartServer'](arg1);
 }
+
+export function SendAudio(arg1) {
+  return window['go']['main']['App']['SendAudio'](arg1);
+}

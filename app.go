@@ -114,11 +114,14 @@ func (a *App) StartServer(port string) string {
 	}
 
 	listenAddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port)
+
+	// Habilitamos AutoRelay explícito para obtener una Multiaddr de circuito cuando estemos tras NAT estricto
 	a.host, err = libp2p.New(
 		libp2p.Identity(privKey),
 		libp2p.ListenAddrStrings(listenAddr),
 		libp2p.EnableNATService(),
 		libp2p.EnableRelayService(),
+		libp2p.EnableAutoRelayWithStaticRelays(getBootstrapPeerInfos()),
 		libp2p.EnableHolePunching(),
 		libp2p.NATPortMap(),
 	)
@@ -151,10 +154,10 @@ func (a *App) StartServer(port string) string {
 	_ = ser.Start()
 
 	go func() {
-		// Esperar 3 segundos para que libp2p resuelva direcciones públicas
-		time.Sleep(3 * time.Second)
+		// Esperar 5 segundos a que libp2p obtenga una ruta de circuito por Relay
+		time.Sleep(5 * time.Second)
 		a.RegisterInVercel()
-		ticker := time.NewTicker(20 * time.Second)
+		ticker := time.NewTicker(15 * time.Second)
 		for range ticker.C {
 			a.RegisterInVercel()
 		}
@@ -163,6 +166,17 @@ func (a *App) StartServer(port string) string {
 	go a.listenLoop()
 
 	return fmt.Sprintf("Nodo Activo en puerto %s. ID: %s", port, a.myCode)
+}
+
+func getBootstrapPeerInfos() []peer.AddrInfo {
+	var infos []peer.AddrInfo
+	for _, addr := range BOOTSTRAP_PEERS {
+		info, err := peer.AddrInfoFromString(addr)
+		if err == nil {
+			infos = append(infos, *info)
+		}
+	}
+	return infos
 }
 
 func (a *App) connectToBootstrapPeers() {
@@ -235,7 +249,10 @@ func (a *App) ConnectToPeer(input string) string {
 		return fmt.Sprintf("Dirección inválida: %s", err.Error())
 	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	// Limpiar el historial de intentos fallidos para eliminar la restricción "dial backoff"
+	a.host.Peerstore().ClearAddrs(info.ID)
+
+	ctxWithTimeout, cancel := context.WithTimeout(a.ctx, 20*time.Second)
 	defer cancel()
 
 	if err := a.host.Connect(ctxWithTimeout, *info); err != nil {

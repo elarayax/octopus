@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { StartServer, ConnectToPeer, SendMessage, SetUsername, GetNodeInfo, SendAudio } from "../wailsjs/go/main/App";
+import { StartServer, ConnectToPeer, SendMessage, SetUsername, GetNodeInfo, SendAudio, GetChatHistory } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
 function App() {
@@ -27,6 +27,12 @@ function App() {
 
   useEffect(() => {
     SetUsername(username);
+
+    GetChatHistory().then((history) => {
+      if (history && history.length > 0) {
+        setMessages(history);
+      }
+    }).catch(err => console.error("Error cargando historial de SQLite:", err));
 
     // 1. Mensajes de texto
     const unsubMsg = EventsOn('receive_message', (msg) => {

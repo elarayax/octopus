@@ -6,12 +6,20 @@ export function ConnectToPeer(arg1) {
   return window['go']['main']['App']['ConnectToPeer'](arg1);
 }
 
+export function GetChatHistory() {
+  return window['go']['main']['App']['GetChatHistory']();
+}
+
 export function GetMyCode() {
   return window['go']['main']['App']['GetMyCode']();
 }
 
 export function GetNodeInfo() {
   return window['go']['main']['App']['GetNodeInfo']();
+}
+
+export function SendAudio(arg1) {
+  return window['go']['main']['App']['SendAudio'](arg1);
 }
 
 export function SendMessage(arg1) {
@@ -24,8 +32,4 @@ export function SetUsername(arg1) {
 
 export function StartServer(arg1) {
   return window['go']['main']['App']['StartServer'](arg1);
-}
-
-export function SendAudio(arg1) {
-  return window['go']['main']['App']['SendAudio'](arg1);
 }

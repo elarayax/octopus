@@ -4,14 +4,16 @@ import {main} from '../models';
 
 export function ConnectToPeer(arg1:string):Promise<string>;
 
+export function GetChatHistory():Promise<Array<main.Message>>;
+
 export function GetMyCode():Promise<string>;
 
 export function GetNodeInfo():Promise<main.NodeInfo>;
+
+export function SendAudio(arg1:string):Promise<string>;
 
 export function SendMessage(arg1:string):Promise<string>;
 
 export function SetUsername(arg1:string):Promise<string>;
 
 export function StartServer(arg1:string):Promise<string>;
-
-export function SendAudio(arg1:string):Promise<string>;

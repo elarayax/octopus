@@ -14,6 +14,22 @@ export namespace main {
 	        this.text = source["text"];
 	    }
 	}
+	export class ModLayout {
+	    themeName: string;
+	    sidebarPosition: string;
+	    panels: Record<string, boolean>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ModLayout(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.themeName = source["themeName"];
+	        this.sidebarPosition = source["sidebarPosition"];
+	        this.panels = source["panels"];
+	    }
+	}
 	export class NodeInfo {
 	    code: string;
 	    multiAddr: string;

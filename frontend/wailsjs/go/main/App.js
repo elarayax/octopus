@@ -18,6 +18,18 @@ export function GetNodeInfo() {
   return window['go']['main']['App']['GetNodeInfo']();
 }
 
+export function LoadCustomCSS() {
+  return window['go']['main']['App']['LoadCustomCSS']();
+}
+
+export function LoadCustomLayout() {
+  return window['go']['main']['App']['LoadCustomLayout']();
+}
+
+export function OpenModsFolder() {
+  return window['go']['main']['App']['OpenModsFolder']();
+}
+
 export function SendAudio(arg1) {
   return window['go']['main']['App']['SendAudio'](arg1);
 }

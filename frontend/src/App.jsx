@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { StartServer, ConnectToPeer, SendMessage, SetUsername, GetNodeInfo, SendAudio, GetChatHistory } from "../wailsjs/go/main/App";
+import {
+  StartServer, ConnectToPeer, SendMessage, SetUsername,
+  GetNodeInfo, SendAudio, GetChatHistory, LoadCustomCSS,
+  LoadCustomLayout, OpenModsFolder
+} from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
 function App() {
@@ -25,8 +29,65 @@ function App() {
   const nextPlayTimeRef = useRef(0);
   const remoteSpeakingTimerRef = useRef(null);
 
+  const [layout, setLayout] = useState({
+    themeName: 'Default',
+    sidebarPosition: 'left',
+    panels: { voice: true, connection: true, nodeInfo: true }
+  });
+
+  const reloadCSS = async () => {
+    const cssText = await LoadCustomCSS();
+    if (cssText !== undefined) {
+      let styleTag = document.getElementById('mod-theme-style');
+      if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = 'mod-theme-style';
+        document.head.appendChild(styleTag);
+      }
+      styleTag.innerHTML = cssText;
+    }
+  };
+
+  // Función para recargar solo el Layout
+  const reloadLayout = async () => {
+    const modLayout = await LoadCustomLayout();
+    if (modLayout && modLayout.panels) {
+      setLayout(modLayout);
+    }
+  };
+
+  // Handler para el botón de "Actualizar Mod"
+  const handleRefreshMods = async () => {
+    await reloadCSS();
+    await reloadLayout();
+    console.log("¡Mod actualizado con éxito!");
+  };
+
   useEffect(() => {
     SetUsername(username);
+
+    // 1. Cargar CSS del Mod
+    LoadCustomCSS().then((cssText) => {
+      if (cssText) {
+        let styleTag = document.getElementById('mod-theme-style');
+        if (!styleTag) {
+          styleTag = document.createElement('style');
+          styleTag.id = 'mod-theme-style';
+          document.head.appendChild(styleTag);
+        }
+        styleTag.innerHTML = cssText;
+      }
+    });
+
+    reloadCSS();
+    reloadLayout();
+
+    // 2. Cargar Layout JSON
+    LoadCustomLayout().then((modLayout) => {
+      if (modLayout && modLayout.panels) {
+        setLayout(modLayout);
+      }
+    });
 
     GetChatHistory().then((history) => {
       if (history && history.length > 0) {
@@ -34,12 +95,12 @@ function App() {
       }
     }).catch(err => console.error("Error cargando historial de SQLite:", err));
 
-    // 1. Mensajes de texto
+    // Mensajes de texto
     const unsubMsg = EventsOn('receive_message', (msg) => {
       setMessages((prev) => [...prev, msg]);
     });
 
-    // 2. Conexiones P2P
+    // Conexiones P2P
     const unsubConn = EventsOn('peer_connected', (msg) => {
       console.log('Peer conectado:', msg);
       setConnectedPeers((prev) => {
@@ -54,7 +115,7 @@ function App() {
       setConnectedPeers((prev) => prev.filter((p) => !p.includes(peerId)));
     });
 
-    // 3. Audio en tiempo real (Llamada Continua)
+    // Audio en tiempo real
     const playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
     playbackCtxRef.current = playbackCtx;
     nextPlayTimeRef.current = playbackCtx.currentTime;
@@ -87,7 +148,7 @@ function App() {
 
         const now = playbackCtx.currentTime;
         if (nextPlayTimeRef.current < now) {
-          nextPlayTimeRef.current = now + 0.02; // margen de 20ms
+          nextPlayTimeRef.current = now + 0.02;
         }
         bufferSource.start(nextPlayTimeRef.current);
         nextPlayTimeRef.current += audioBuffer.duration;
@@ -105,7 +166,11 @@ function App() {
     };
   }, []);
 
-  // Iniciar Llamada Continua
+  const handleOpenModsFolder = async () => {
+    const res = await OpenModsFolder();
+    console.log(res);
+  };
+
   const startVoiceCall = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -121,10 +186,8 @@ function App() {
       audioCtxRef.current = audioCtx;
 
       const source = audioCtx.createMediaStreamSource(stream);
-      // Fragmentos de 2048 muestras (~128 ms a 16kHz) para transmisión continua
       const processor = audioCtx.createScriptProcessor(2048, 1, 1);
 
-      // Ganancia en 0 para evitar que el usuario se escuche a sí mismo (eco local)
       const silentGain = audioCtx.createGain();
       silentGain.gain.value = 0;
 
@@ -160,7 +223,6 @@ function App() {
     }
   };
 
-  // Salir de Llamada Continua
   const stopVoiceCall = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -173,7 +235,6 @@ function App() {
     setInVoiceCall(false);
   };
 
-  // Silenciar / Activar Micrófono
   const toggleMute = () => {
     setIsMuted((prev) => {
       const next = !prev;
@@ -219,7 +280,22 @@ function App() {
 
   return (
     <div style={{ padding: '20px', color: '#fff', textAlign: 'left', maxWidth: '650px', margin: '0 auto' }}>
-      <h2>Chat P2P - Texto & Voz en Vivo</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+        <h2>Chat P2P - Texto & Voz en Vivo</h2>
+        <button
+          onClick={handleRefreshMods}
+          style={{ backgroundColor: '#2e7d32', color: '#fff' }}
+          title="Recargar CSS y Layout sin reiniciar"
+        >
+          🔄 Actualizar Mod
+            </button>
+        <button
+          onClick={handleOpenModsFolder}
+          style={{ backgroundColor: '#4a4d6e', color: '#fff' }}
+        >
+          📁 Abrir carpeta de Mods
+        </button>
+      </div>
 
       {/* Barra de Estado */}
       <div style={{
@@ -236,59 +312,61 @@ function App() {
         <div><strong>Peers activos:</strong> <span style={{ color: '#4caf50' }}>{connectedPeers.length}</span></div>
       </div>
 
-      {/* Panel de Llamada de Voz Continua (Discord Style) */}
-      <div style={{
-        padding: '12px 16px',
-        backgroundColor: inVoiceCall ? '#1e3a2f' : '#232733',
-        borderRadius: '8px',
-        marginBottom: '15px',
-        border: inVoiceCall ? '1px solid #4caf50' : '1px solid #3d4455',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between'
-      }}>
-        <div>
-          <strong style={{ fontSize: '1.05em' }}>📞 Canal de Voz en Vivo:</strong>
-          <div style={{ fontSize: '0.85em', color: inVoiceCall ? '#81c784' : '#aaa', marginTop: '3px' }}>
-            {inVoiceCall ? (
-              <span>🟢 En llamada continua {isMuted ? '(🔇 Micrófono Silenciado)' : '(🎙️ Micrófono Abierto)'}</span>
+      {/* RENDERIZADO CONDICIONAL: Panel de Voz */}
+      {layout.panels.voice && (
+        <div style={{
+          padding: '12px 16px',
+          backgroundColor: inVoiceCall ? '#1e3a2f' : '#232733',
+          borderRadius: '8px',
+          marginBottom: '15px',
+          border: inVoiceCall ? '1px solid #4caf50' : '1px solid #3d4455',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <div>
+            <strong style={{ fontSize: '1.05em' }}>📞 Canal de Voz en Vivo:</strong>
+            <div style={{ fontSize: '0.85em', color: inVoiceCall ? '#81c784' : '#aaa', marginTop: '3px' }}>
+              {inVoiceCall ? (
+                <span>🟢 En llamada continua {isMuted ? '(🔇 Micrófono Silenciado)' : '(🎙️ Micrófono Abierto)'}</span>
+              ) : (
+                <span>⚪ Fuera de llamada</span>
+              )}
+              {remoteSpeaking && <span style={{ marginLeft: '10px', color: '#64b5f6' }}>🔊 Alguien está hablando...</span>}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {!inVoiceCall ? (
+              <button
+                onClick={startVoiceCall}
+                style={{ backgroundColor: '#2e7d32', color: '#fff', padding: '6px 14px', fontWeight: 'bold' }}
+              >
+                🎙️ Unirse a Voz
+              </button>
             ) : (
-              <span>⚪ Fuera de llamada</span>
+              <>
+                <button
+                  onClick={toggleMute}
+                  style={{
+                    backgroundColor: isMuted ? '#d32f2f' : '#388e3c',
+                    color: '#fff',
+                    padding: '6px 12px'
+                  }}
+                >
+                  {isMuted ? '🔇 Desmutear' : '🎙️ Mutear'}
+                </button>
+                <button
+                  onClick={stopVoiceCall}
+                  style={{ backgroundColor: '#c62828', color: '#fff', padding: '6px 12px' }}
+                >
+                  🔴 Salir
+                </button>
+              </>
             )}
-            {remoteSpeaking && <span style={{ marginLeft: '10px', color: '#64b5f6' }}>🔊 Alguien está hablando...</span>}
           </div>
         </div>
-
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {!inVoiceCall ? (
-            <button
-              onClick={startVoiceCall}
-              style={{ backgroundColor: '#2e7d32', color: '#fff', padding: '6px 14px', fontWeight: 'bold' }}
-            >
-              🎙️ Unirse a Voz
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={toggleMute}
-                style={{
-                  backgroundColor: isMuted ? '#d32f2f' : '#388e3c',
-                  color: '#fff',
-                  padding: '6px 12px'
-                }}
-              >
-                {isMuted ? '🔇 Desmutear' : '🎙️ Mutear'}
-              </button>
-              <button
-                onClick={stopVoiceCall}
-                style={{ backgroundColor: '#c62828', color: '#fff', padding: '6px 12px' }}
-              >
-                🔴 Salir
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Nombre de Usuario */}
       <div style={{ marginBottom: '15px' }}>
@@ -312,8 +390,8 @@ function App() {
         </button>
       </div>
 
-      {/* Panel con Tu ID Fijo de Máquina */}
-      {nodeInfo.code && (
+      {/* RENDERIZADO CONDICIONAL: ID Fijo de Máquina */}
+      {layout.panels.nodeInfo && nodeInfo.code && (
         <div style={{
           backgroundColor: '#2a2d3e',
           padding: '12px',
@@ -334,18 +412,20 @@ function App() {
         </div>
       )}
 
-      {/* Conexión a Peer */}
-      <div style={{ marginBottom: '20px' }}>
-        <input
-          value={peerAddress}
-          onChange={(e) => setPeerAddress(e.target.value)}
-          placeholder="Pega el ID Fijo de tu amigo (6 letras)..."
-          style={{ width: '65%', marginRight: '5px' }}
-        />
-        <button onClick={handleConnect} style={{ backgroundColor: '#1976d2', color: '#fff' }}>
-          Conectar
-        </button>
-      </div>
+      {/* RENDERIZADO CONDICIONAL: Panel de Conexión */}
+      {layout.panels.connection && (
+        <div style={{ marginBottom: '20px' }}>
+          <input
+            value={peerAddress}
+            onChange={(e) => setPeerAddress(e.target.value)}
+            placeholder="Pega el ID Fijo de tu amigo (6 letras)..."
+            style={{ width: '65%', marginRight: '5px' }}
+          />
+          <button onClick={handleConnect} style={{ backgroundColor: '#1976d2', color: '#fff' }}>
+            Conectar
+          </button>
+        </div>
+      )}
 
       {/* Historial de Mensajes de Texto */}
       <div style={{

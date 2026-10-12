@@ -10,6 +10,12 @@ export function GetMyCode():Promise<string>;
 
 export function GetNodeInfo():Promise<main.NodeInfo>;
 
+export function LoadCustomCSS():Promise<string>;
+
+export function LoadCustomLayout():Promise<main.ModLayout>;
+
+export function OpenModsFolder():Promise<string>;
+
 export function SendAudio(arg1:string):Promise<string>;
 
 export function SendMessage(arg1:string):Promise<string>;

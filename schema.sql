@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS foro_comentario (
 );
 
 -- ==========================================
+--  CONFIGURACIÓN DE LA APP (clave-valor)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS configuracion (
+    clave VARCHAR(255) PRIMARY KEY,
+    valor TEXT
+);
+
+-- ==========================================
 --  DATOS INICIALES POR DEFECTO
 -- ==========================================
 INSERT OR IGNORE INTO tipo_canal (id, nombre, descripcion) VALUES

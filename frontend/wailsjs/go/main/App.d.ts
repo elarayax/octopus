@@ -10,6 +10,8 @@ export function GetMyCode():Promise<string>;
 
 export function GetNodeInfo():Promise<main.NodeInfo>;
 
+export function GetUsername():Promise<string>;
+
 export function LoadCustomCSS():Promise<string>;
 
 export function LoadCustomLayout():Promise<main.ModLayout>;

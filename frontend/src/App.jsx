@@ -3,12 +3,12 @@ import './App.css';
 import {
   StartServer, ConnectToPeer, SendMessage, SetUsername,
   GetNodeInfo, SendAudio, GetChatHistory, LoadCustomCSS,
-  LoadCustomLayout, OpenModsFolder
+  LoadCustomLayout, OpenModsFolder, GetUsername
 } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
 function App() {
-  const [username, setUsernameInput] = useState('Byron');
+  const [username, setUsernameInput] = useState('');
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [myPort, setMyPort] = useState('8080');
@@ -21,6 +21,8 @@ function App() {
   const [inVoiceCall, setInVoiceCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [remoteSpeaking, setRemoteSpeaking] = useState(false);
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState('');
 
   const streamRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -64,7 +66,12 @@ function App() {
   };
 
   useEffect(() => {
-    SetUsername(username);
+    // Cargar el nombre de usuario guardado en SQLite (o el valor por defecto)
+    GetUsername().then((name) => {
+      if (name) {
+        setUsernameInput(name);
+      }
+    }).catch(err => console.error("Error cargando nombre de usuario:", err));
 
     // 1. Cargar CSS del Mod
     LoadCustomCSS().then((cssText) => {
@@ -157,64 +164,123 @@ function App() {
       }
     });
 
+    getAudioDevices();
+    const handleDeviceChangeEvt = () => {
+      getAudioDevices();
+    };
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', handleDeviceChangeEvt);
+    }
+
     return () => {
       unsubMsg();
       unsubConn();
       unsubDisconn();
       unsubAudio();
       if (playbackCtxRef.current) playbackCtxRef.current.close();
+      if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
+        navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChangeEvt);
+      }
     };
   }, []);
+
+  const getAudioDevices = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      setAudioDevices(inputs);
+      if (inputs.length > 0) {
+        setSelectedDeviceId((prev) => {
+          const exists = inputs.some((d) => d.deviceId === prev);
+          return exists && prev ? prev : inputs[0].deviceId;
+        });
+      }
+    } catch (err) {
+      console.error('Error listando dispositivos de audio:', err);
+    }
+  };
 
   const handleOpenModsFolder = async () => {
     const res = await OpenModsFolder();
     console.log(res);
   };
 
+  const setupAudioCapture = async (deviceIdToUse) => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close();
+      audioCtxRef.current = null;
+    }
+
+    const audioConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+    if (deviceIdToUse) {
+      audioConstraints.deviceId = { ideal: deviceIdToUse };
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: audioConstraints,
+    });
+    streamRef.current = stream;
+
+    // Actualizar lista para poblar nombres de micrófonos tras obtener permiso
+    getAudioDevices();
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    audioCtxRef.current = audioCtx;
+
+    const source = audioCtx.createMediaStreamSource(stream);
+    const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+
+    const silentGain = audioCtx.createGain();
+    silentGain.gain.value = 0;
+
+    processor.onaudioprocess = (e) => {
+      if (isMutedRef.current) return;
+
+      const input = e.inputBuffer.getChannelData(0);
+      const int16 = new Int16Array(input.length);
+      for (let i = 0; i < input.length; i++) {
+        let s = Math.max(-1, Math.min(1, input[i]));
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+
+      let binary = '';
+      const bytes = new Uint8Array(int16.buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const b64 = btoa(binary);
+      SendAudio(b64);
+    };
+
+    source.connect(processor);
+    processor.connect(silentGain);
+    silentGain.connect(audioCtx.destination);
+  };
+
+  const handleDeviceChange = async (newDeviceId) => {
+    setSelectedDeviceId(newDeviceId);
+    if (inVoiceCall) {
+      try {
+        await setupAudioCapture(newDeviceId);
+      } catch (err) {
+        alert('Error cambiando de micrófono: ' + err.message);
+      }
+    }
+  };
+
   const startVoiceCall = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }
-      });
-      streamRef.current = stream;
-
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      audioCtxRef.current = audioCtx;
-
-      const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(2048, 1, 1);
-
-      const silentGain = audioCtx.createGain();
-      silentGain.gain.value = 0;
-
-      processor.onaudioprocess = (e) => {
-        if (isMutedRef.current) return;
-
-        const input = e.inputBuffer.getChannelData(0);
-        const int16 = new Int16Array(input.length);
-        for (let i = 0; i < input.length; i++) {
-          let s = Math.max(-1, Math.min(1, input[i]));
-          int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-
-        let binary = '';
-        const bytes = new Uint8Array(int16.buffer);
-        const len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        const b64 = btoa(binary);
-        SendAudio(b64);
-      };
-
-      source.connect(processor);
-      processor.connect(silentGain);
-      silentGain.connect(audioCtx.destination);
-
+      await setupAudioCapture(selectedDeviceId);
       setInVoiceCall(true);
       setIsMuted(false);
       isMutedRef.current = false;
@@ -314,56 +380,119 @@ function App() {
 
       {/* RENDERIZADO CONDICIONAL: Panel de Voz */}
       {layout.panels.voice && (
-        <div style={{
+        <div className="voice-panel" style={{
           padding: '12px 16px',
           backgroundColor: inVoiceCall ? '#1e3a2f' : '#232733',
           borderRadius: '8px',
           marginBottom: '15px',
           border: inVoiceCall ? '1px solid #4caf50' : '1px solid #3d4455',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
         }}>
-          <div>
-            <strong style={{ fontSize: '1.05em' }}>📞 Canal de Voz en Vivo:</strong>
-            <div style={{ fontSize: '0.85em', color: inVoiceCall ? '#81c784' : '#aaa', marginTop: '3px' }}>
-              {inVoiceCall ? (
-                <span>🟢 En llamada continua {isMuted ? '(🔇 Micrófono Silenciado)' : '(🎙️ Micrófono Abierto)'}</span>
+          <div className="voice-header" style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div className="voice-info">
+              <strong style={{ fontSize: '1.05em' }}>📞 Canal de Voz en Vivo:</strong>
+              <div style={{ fontSize: '0.85em', color: inVoiceCall ? '#81c784' : '#aaa', marginTop: '3px' }}>
+                {inVoiceCall ? (
+                  <span>🟢 En llamada continua {isMuted ? '(🔇 Micrófono Silenciado)' : '(🎙️ Micrófono Abierto)'}</span>
+                ) : (
+                  <span>⚪ Fuera de llamada</span>
+                )}
+                {remoteSpeaking && <span style={{ marginLeft: '10px', color: '#64b5f6' }}>🔊 Alguien está hablando...</span>}
+              </div>
+            </div>
+
+            <div className="voice-actions" style={{ display: 'flex', gap: '8px' }}>
+              {!inVoiceCall ? (
+                <button
+                  className="voice-btn-join"
+                  onClick={startVoiceCall}
+                  style={{ backgroundColor: '#2e7d32', color: '#fff', padding: '6px 14px', fontWeight: 'bold' }}
+                >
+                  🎙️ Unirse a Voz
+                </button>
               ) : (
-                <span>⚪ Fuera de llamada</span>
+                <>
+                  <button
+                    className="voice-btn-mute"
+                    onClick={toggleMute}
+                    style={{
+                      backgroundColor: isMuted ? '#d32f2f' : '#388e3c',
+                      color: '#fff',
+                      padding: '6px 12px'
+                    }}
+                  >
+                    {isMuted ? '🔇 Desmutear' : '🎙️ Mutear'}
+                  </button>
+                  <button
+                    className="voice-btn-leave"
+                    onClick={stopVoiceCall}
+                    style={{ backgroundColor: '#c62828', color: '#fff', padding: '6px 12px' }}
+                  >
+                    🔴 Salir
+                  </button>
+                </>
               )}
-              {remoteSpeaking && <span style={{ marginLeft: '10px', color: '#64b5f6' }}>🔊 Alguien está hablando...</span>}
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {!inVoiceCall ? (
-              <button
-                onClick={startVoiceCall}
-                style={{ backgroundColor: '#2e7d32', color: '#fff', padding: '6px 14px', fontWeight: 'bold' }}
-              >
-                🎙️ Unirse a Voz
-              </button>
-            ) : (
-              <>
-                <button
-                  onClick={toggleMute}
-                  style={{
-                    backgroundColor: isMuted ? '#d32f2f' : '#388e3c',
-                    color: '#fff',
-                    padding: '6px 12px'
-                  }}
-                >
-                  {isMuted ? '🔇 Desmutear' : '🎙️ Mutear'}
-                </button>
-                <button
-                  onClick={stopVoiceCall}
-                  style={{ backgroundColor: '#c62828', color: '#fff', padding: '6px 12px' }}
-                >
-                  🔴 Salir
-                </button>
-              </>
-            )}
+          {/* Selector de Micrófono */}
+          <div className="voice-device-selector" style={{
+            marginTop: '12px',
+            paddingTop: '8px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.85em'
+          }}>
+            <label htmlFor="mic-select" style={{ color: '#bbb', whiteSpace: 'nowrap' }}>
+              🎙️ Micrófono:
+            </label>
+            <select
+              id="mic-select"
+              className="voice-select"
+              value={selectedDeviceId}
+              onChange={(e) => handleDeviceChange(e.target.value)}
+              style={{
+                backgroundColor: '#161922',
+                color: '#fff',
+                border: '1px solid #4a4d6e',
+                borderRadius: '4px',
+                padding: '4px 8px',
+                fontSize: '0.9em',
+                flex: 1,
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              {audioDevices.length === 0 ? (
+                <option value="">Por defecto del sistema</option>
+              ) : (
+                audioDevices.map((dev, idx) => (
+                  <option key={dev.deviceId || idx} value={dev.deviceId}>
+                    {dev.label || (idx === 0 ? 'Micrófono predeterminado' : `Micrófono ${idx + 1}`)}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              className="voice-btn-refresh"
+              onClick={getAudioDevices}
+              title="Recargar lista de micrófonos"
+              style={{
+                backgroundColor: '#383d52',
+                color: '#ccc',
+                padding: '4px 8px',
+                fontSize: '0.85em',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              🔄
+            </button>
           </div>
         </div>
       )}

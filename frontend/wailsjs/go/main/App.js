@@ -18,6 +18,10 @@ export function GetNodeInfo() {
   return window['go']['main']['App']['GetNodeInfo']();
 }
 
+export function GetUsername() {
+  return window['go']['main']['App']['GetUsername']();
+}
+
 export function LoadCustomCSS() {
   return window['go']['main']['App']['LoadCustomCSS']();
 }

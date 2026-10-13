@@ -39,6 +39,28 @@ func (a *App) initDB() error {
 	return nil
 }
 
+func (a *App) saveSetting(clave, valor string) {
+	if a.db == nil {
+		return
+	}
+	_, _ = a.db.Exec(`
+		INSERT INTO configuracion (clave, valor) VALUES (?, ?)
+		ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
+	`, clave, valor)
+}
+
+func (a *App) getSetting(clave string) string {
+	if a.db == nil {
+		return ""
+	}
+	var valor string
+	err := a.db.QueryRow(`SELECT valor FROM configuracion WHERE clave = ?`, clave).Scan(&valor)
+	if err != nil {
+		return ""
+	}
+	return valor
+}
+
 func (a *App) saveMessage(sender, text string) {
 	if a.db == nil {
 		return

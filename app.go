@@ -53,15 +53,32 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	if err := a.initDB(); err != nil {
 		fmt.Println("Error inicializando base de datos SQLite:", err)
+		return
+	}
+	// Restaurar el nombre de usuario guardado de la sesión anterior
+	if saved := a.getSetting("username"); strings.TrimSpace(saved) != "" {
+		a.username = saved
+		fmt.Println("Nombre de usuario restaurado:", a.username)
 	}
 }
 
 func (a *App) SetUsername(name string) string {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if strings.TrimSpace(name) != "" {
-		a.username = name
+	a.username = strings.TrimSpace(name)
+	if a.username == "" {
+		a.username = "Anónimo"
 	}
+	username := a.username
+	a.mu.Unlock()
+
+	// Persistir en SQLite para restaurarlo al iniciar el programa
+	a.saveSetting("username", username)
+	return username
+}
+
+func (a *App) GetUsername() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.username
 }
 

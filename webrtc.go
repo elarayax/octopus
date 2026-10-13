@@ -19,9 +19,10 @@ import (
 )
 
 type PeerSession struct {
-	id string
-	pc *webrtc.PeerConnection
-	dc *webrtc.DataChannel
+	id  string
+	pc  *webrtc.PeerConnection
+	dc  *webrtc.DataChannel // texto: fiable y ordenado
+	dca *webrtc.DataChannel // audio: no fiable, sin orden (baja latencia)
 }
 
 func generateRoomCode() string {
@@ -154,8 +155,12 @@ func (a *App) pollMailbox(stopChan <-chan struct{}) {
 }
 
 func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
+	isChat := dc.Label() == "chat"
+
 	dc.OnOpen(func() {
-		runtime.EventsEmit(a.ctx, "peer_connected", fmt.Sprintf("Peer %s conectado", remoteID))
+		if isChat {
+			runtime.EventsEmit(a.ctx, "peer_connected", fmt.Sprintf("Peer %s conectado", remoteID))
+		}
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -172,10 +177,18 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 				runtime.EventsEmit(a.ctx, "receive_message", chatMsg)
 			}
 
+			// Retransmitir a los demás peers por el canal adecuado
 			a.mu.Lock()
 			for id, session := range a.peers {
-				if id != remoteID && session.dc != nil && session.dc.ReadyState() == webrtc.DataChannelStateOpen {
-					_ = session.dc.SendText(string(msg.Data))
+				if id == remoteID {
+					continue
+				}
+				ch := session.dc
+				if pkt.Type == "audio" && session.dca != nil && session.dca.ReadyState() == webrtc.DataChannelStateOpen {
+					ch = session.dca
+				}
+				if ch != nil && ch.ReadyState() == webrtc.DataChannelStateOpen {
+					_ = ch.SendText(string(msg.Data))
 				}
 			}
 			a.mu.Unlock()
@@ -183,8 +196,10 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 	})
 
 	dc.OnClose(func() {
-		a.removePeer(remoteID)
-		runtime.EventsEmit(a.ctx, "peer_disconnected", remoteID)
+		if isChat {
+			a.removePeer(remoteID)
+			runtime.EventsEmit(a.ctx, "peer_disconnected", remoteID)
+		}
 	})
 }
 
@@ -218,7 +233,11 @@ func (a *App) handleIncomingOffer(fromPeerID, offerB64 string) {
 	a.mu.Unlock()
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		session.dc = dc
+		if dc.Label() == "audio" {
+			session.dca = dc
+		} else {
+			session.dc = dc
+		}
 		a.setupDataChannel(fromPeerID, dc)
 	})
 
@@ -364,6 +383,20 @@ func (a *App) ConnectToPeer(input string) string {
 	}
 	session.dc = dc
 
+	// Canal de audio: no fiable y sin orden (maxRetransmits=0).
+	// Para voz en vivo es mejor perder un paquete que esperar su retransmisión.
+	maxRetransmits := uint16(0)
+	unordered := false
+	dca, err := pc.CreateDataChannel("audio", &webrtc.DataChannelInit{
+		MaxRetransmits: &maxRetransmits,
+		Ordered:        &unordered,
+	})
+	if err != nil {
+		_ = pc.Close()
+		return fmt.Sprintf("Error creando canal de audio: %s", err.Error())
+	}
+	session.dca = dca
+
 	a.mu.Lock()
 	if old, exists := a.peers[target]; exists {
 		if old.pc != nil {
@@ -374,6 +407,7 @@ func (a *App) ConnectToPeer(input string) string {
 	a.mu.Unlock()
 
 	a.setupDataChannel(target, dc)
+	a.setupDataChannel(target, dca)
 
 	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		if state == webrtc.ICEConnectionStateConnected {

@@ -123,7 +123,7 @@ function App() {
     });
 
     // Audio en tiempo real
-    const playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000, latencyHint: 'interactive' });
     playbackCtxRef.current = playbackCtx;
     nextPlayTimeRef.current = playbackCtx.currentTime;
 
@@ -154,8 +154,11 @@ function App() {
         bufferSource.connect(playbackCtx.destination);
 
         const now = playbackCtx.currentTime;
-        if (nextPlayTimeRef.current < now) {
-          nextPlayTimeRef.current = now + 0.02;
+        // Techo de latencia: si la cola supera ~150ms (ráfagas, micro-cortes),
+        // descartamos el atraso y retomamos casi en vivo en vez de acumular delay.
+        const MAX_LATENCY = 0.15;
+        if (nextPlayTimeRef.current < now || nextPlayTimeRef.current - now > MAX_LATENCY) {
+          nextPlayTimeRef.current = now + 0.03;
         }
         bufferSource.start(nextPlayTimeRef.current);
         nextPlayTimeRef.current += audioBuffer.duration;
@@ -233,11 +236,12 @@ function App() {
     // Actualizar lista para poblar nombres de micrófonos tras obtener permiso
     getAudioDevices();
 
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000, latencyHint: 'interactive' });
     audioCtxRef.current = audioCtx;
 
     const source = audioCtx.createMediaStreamSource(stream);
-    const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+    // Buffer de 512 muestras @16kHz = 32ms por chunk (antes 2048 = 128ms de delay fijo)
+    const processor = audioCtx.createScriptProcessor(512, 1, 1);
 
     const silentGain = audioCtx.createGain();
     silentGain.gain.value = 0;
@@ -281,6 +285,10 @@ function App() {
   const startVoiceCall = async () => {
     try {
       await setupAudioCapture(selectedDeviceId);
+      // Reiniciar el cursor de reproducción para no heredar atraso de una llamada anterior
+      if (playbackCtxRef.current) {
+        nextPlayTimeRef.current = playbackCtxRef.current.currentTime;
+      }
       setInVoiceCall(true);
       setIsMuted(false);
       isMutedRef.current = false;

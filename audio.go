@@ -32,8 +32,14 @@ func (a *App) SendAudio(audioB64 string) string {
 
 	str := string(data)
 	for _, s := range sessions {
-		if s.dc != nil && s.dc.ReadyState() == webrtc.DataChannelStateOpen {
-			_ = s.dc.SendText(str)
+		// Preferir el canal de audio (no fiable, baja latencia); si no está
+		// disponible, caer al canal de chat como respaldo.
+		ch := s.dca
+		if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
+			ch = s.dc
+		}
+		if ch != nil && ch.ReadyState() == webrtc.DataChannelStateOpen {
+			_ = ch.SendText(str)
 		}
 	}
 

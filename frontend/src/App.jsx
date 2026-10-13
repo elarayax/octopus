@@ -3,7 +3,7 @@ import './App.css';
 import {
   StartServer, ConnectToPeer, SendMessage, SetUsername,
   GetNodeInfo, SendAudio, GetChatHistory, LoadCustomCSS,
-  LoadCustomLayout, OpenModsFolder, GetUsername
+  LoadCustomLayout, OpenModsFolder, GetUsername, GetAudioPrefs, SetAudioPrefs
 } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 
@@ -30,6 +30,13 @@ function App() {
   const isMutedRef = useRef(false);
   const nextPlayTimeRef = useRef(0);
   const remoteSpeakingTimerRef = useRef(null);
+
+  // Volumen: medidor de nivel + ganancias configurables
+  const [micGain, setMicGain] = useState(1);
+  const [playbackGain, setPlaybackGain] = useState(1);
+  const micGainRef = useRef(1);
+  const playbackGainNodeRef = useRef(null);
+  const micMeterRef = useRef(null);
 
   const [layout, setLayout] = useState({
     themeName: 'Default',
@@ -72,6 +79,21 @@ function App() {
         setUsernameInput(name);
       }
     }).catch(err => console.error("Error cargando nombre de usuario:", err));
+
+    // Cargar los volúmenes guardados en SQLite
+    GetAudioPrefs().then((prefs) => {
+      if (!prefs) return;
+      if (typeof prefs.micGain === 'number') {
+        setMicGain(prefs.micGain);
+        micGainRef.current = prefs.micGain;
+      }
+      if (typeof prefs.playbackGain === 'number') {
+        setPlaybackGain(prefs.playbackGain);
+        if (playbackGainNodeRef.current) {
+          playbackGainNodeRef.current.gain.value = prefs.playbackGain;
+        }
+      }
+    }).catch(err => console.error("Error cargando volúmenes:", err));
 
     // 1. Cargar CSS del Mod
     LoadCustomCSS().then((cssText) => {
@@ -127,6 +149,12 @@ function App() {
     playbackCtxRef.current = playbackCtx;
     nextPlayTimeRef.current = playbackCtx.currentTime;
 
+    // Nodo de ganancia para controlar el volumen de la voz recibida
+    const playbackGainNode = playbackCtx.createGain();
+    playbackGainNode.gain.value = playbackGain;
+    playbackGainNode.connect(playbackCtx.destination);
+    playbackGainNodeRef.current = playbackGainNode;
+
     const unsubAudio = EventsOn('receive_audio', (b64Audio) => {
       try {
         setRemoteSpeaking(true);
@@ -151,7 +179,7 @@ function App() {
 
         const bufferSource = playbackCtx.createBufferSource();
         bufferSource.buffer = audioBuffer;
-        bufferSource.connect(playbackCtx.destination);
+        bufferSource.connect(playbackGainNodeRef.current || playbackCtx.destination);
 
         const now = playbackCtx.currentTime;
         // Techo de latencia: si la cola supera ~150ms (ráfagas, micro-cortes),
@@ -247,12 +275,30 @@ function App() {
     silentGain.gain.value = 0;
 
     processor.onaudioprocess = (e) => {
-      if (isMutedRef.current) return;
+      if (isMutedRef.current) {
+        if (micMeterRef.current) micMeterRef.current.style.width = '0%';
+        return;
+      }
 
       const input = e.inputBuffer.getChannelData(0);
+
+      // Nivel RMS para el medidor de volumen (actualiza el DOM directo, sin re-render)
+      let sum = 0;
+      for (let i = 0; i < input.length; i++) {
+        sum += input[i] * input[i];
+      }
+      const rms = Math.sqrt(sum / input.length);
+      if (micMeterRef.current) {
+        const pct = Math.min(100, Math.round(rms * 400));
+        micMeterRef.current.style.width = pct + '%';
+        micMeterRef.current.style.backgroundColor =
+          pct > 80 ? '#d32f2f' : pct > 50 ? '#fbc02d' : '#4caf50';
+      }
+
+      const gain = micGainRef.current;
       const int16 = new Int16Array(input.length);
       for (let i = 0; i < input.length; i++) {
-        let s = Math.max(-1, Math.min(1, input[i]));
+        let s = Math.max(-1, Math.min(1, input[i] * gain));
         int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
       }
 
@@ -306,7 +352,35 @@ function App() {
       audioCtxRef.current.close();
       audioCtxRef.current = null;
     }
+    if (micMeterRef.current) {
+      micMeterRef.current.style.width = '0%';
+    }
     setInVoiceCall(false);
+  };
+
+  // Guarda los volúmenes en SQLite con debounce (el slider dispara muchos eventos)
+  const savePrefsTimerRef = useRef(null);
+  const saveAudioPrefs = (mic, playback) => {
+    if (savePrefsTimerRef.current) clearTimeout(savePrefsTimerRef.current);
+    savePrefsTimerRef.current = setTimeout(() => {
+      SetAudioPrefs(mic, playback).catch(err => console.error("Error guardando volúmenes:", err));
+    }, 300);
+  };
+
+  const handleMicGainChange = (value) => {
+    const g = parseFloat(value);
+    setMicGain(g);
+    micGainRef.current = g;
+    saveAudioPrefs(g, playbackGain);
+  };
+
+  const handlePlaybackGainChange = (value) => {
+    const g = parseFloat(value);
+    setPlaybackGain(g);
+    if (playbackGainNodeRef.current) {
+      playbackGainNodeRef.current.gain.value = g;
+    }
+    saveAudioPrefs(micGain, g);
   };
 
   const toggleMute = () => {
@@ -501,6 +575,82 @@ function App() {
             >
               🔄
             </button>
+          </div>
+
+          {/* Medidor de nivel del micrófono */}
+          <div style={{
+            marginTop: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.85em'
+          }}>
+            <span style={{ color: '#bbb', whiteSpace: 'nowrap' }}>🎚️ Nivel:</span>
+            <div style={{
+              flex: 1,
+              height: '8px',
+              backgroundColor: '#161922',
+              borderRadius: '4px',
+              overflow: 'hidden',
+              border: '1px solid #4a4d6e'
+            }}>
+              <div
+                ref={micMeterRef}
+                style={{ height: '100%', width: '0%', backgroundColor: '#4caf50', transition: 'width 0.05s linear' }}
+              />
+            </div>
+          </div>
+
+          {/* Volumen del micrófono (lo que envías) */}
+          <div style={{
+            marginTop: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.85em'
+          }}>
+            <label htmlFor="mic-gain" style={{ color: '#bbb', whiteSpace: 'nowrap' }}>
+              🎙️ Tu volumen:
+            </label>
+            <input
+              id="mic-gain"
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={micGain}
+              onChange={(e) => handleMicGainChange(e.target.value)}
+              style={{ flex: 1, accentColor: '#4caf50', cursor: 'pointer' }}
+            />
+            <span style={{ color: '#888', width: '42px', textAlign: 'right' }}>
+              {Math.round(micGain * 100)}%
+            </span>
+          </div>
+
+          {/* Volumen de la voz recibida (lo que escuchas) */}
+          <div style={{
+            marginTop: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.85em'
+          }}>
+            <label htmlFor="playback-gain" style={{ color: '#bbb', whiteSpace: 'nowrap' }}>
+              🔊 Voz recibida:
+            </label>
+            <input
+              id="playback-gain"
+              type="range"
+              min="0"
+              max="2"
+              step="0.1"
+              value={playbackGain}
+              onChange={(e) => handlePlaybackGainChange(e.target.value)}
+              style={{ flex: 1, accentColor: '#64b5f6', cursor: 'pointer' }}
+            />
+            <span style={{ color: '#888', width: '42px', textAlign: 'right' }}>
+              {Math.round(playbackGain * 100)}%
+            </span>
           </div>
         </div>
       )}

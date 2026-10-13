@@ -1,5 +1,19 @@
 export namespace main {
 	
+	export class AudioPrefs {
+	    micGain: number;
+	    playbackGain: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AudioPrefs(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.micGain = source["micGain"];
+	        this.playbackGain = source["playbackGain"];
+	    }
+	}
 	export class Message {
 	    sender: string;
 	    text: string;

@@ -6,6 +6,10 @@ export function ConnectToPeer(arg1) {
   return window['go']['main']['App']['ConnectToPeer'](arg1);
 }
 
+export function GetAudioPrefs() {
+  return window['go']['main']['App']['GetAudioPrefs']();
+}
+
 export function GetChatHistory() {
   return window['go']['main']['App']['GetChatHistory']();
 }
@@ -40,6 +44,10 @@ export function SendAudio(arg1) {
 
 export function SendMessage(arg1) {
   return window['go']['main']['App']['SendMessage'](arg1);
+}
+
+export function SetAudioPrefs(arg1, arg2) {
+  return window['go']['main']['App']['SetAudioPrefs'](arg1, arg2);
 }
 
 export function SetUsername(arg1) {

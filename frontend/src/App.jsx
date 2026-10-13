@@ -157,6 +157,10 @@ function App() {
 
     const unsubAudio = EventsOn('receive_audio', (b64Audio) => {
       try {
+        // Si el contexto quedó suspendido, intentar reanudarlo al llegar audio
+        if (playbackCtx.state === 'suspended') {
+          playbackCtx.resume().catch(() => {});
+        }
         setRemoteSpeaking(true);
         if (remoteSpeakingTimerRef.current) clearTimeout(remoteSpeakingTimerRef.current);
         remoteSpeakingTimerRef.current = setTimeout(() => setRemoteSpeaking(false), 500);
@@ -331,6 +335,14 @@ function App() {
   const startVoiceCall = async () => {
     try {
       await setupAudioCapture(selectedDeviceId);
+      // WKWebView puede dejar los AudioContext suspendidos hasta un gesto del
+      // usuario: reanudarlos aquí (este click ES el gesto) o nada suena.
+      if (playbackCtxRef.current && playbackCtxRef.current.state === 'suspended') {
+        await playbackCtxRef.current.resume();
+      }
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        await audioCtxRef.current.resume();
+      }
       // Reiniciar el cursor de reproducción para no heredar atraso de una llamada anterior
       if (playbackCtxRef.current) {
         nextPlayTimeRef.current = playbackCtxRef.current.currentTime;

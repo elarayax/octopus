@@ -58,6 +58,24 @@ export namespace main {
 	        this.multiAddr = source["multiAddr"];
 	    }
 	}
+	export class UserEntry {
+	    name: string;
+	    online: boolean;
+	    avatar: string;
+	    self: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new UserEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.online = source["online"];
+	        this.avatar = source["avatar"];
+	        this.self = source["self"];
+	    }
+	}
 
 }
 

@@ -91,6 +91,10 @@
   background: hsl(var(--hue) 45% 28%);
   color: hsl(var(--hue) 85% 85%);
 }
+.chat-message__avatar--img {
+  object-fit: cover;
+  background: var(--color-surface-deep);
+}
 .chat-message__sender {
   font-size: 0.85rem;
   color: hsl(var(--hue) 75% 76%);

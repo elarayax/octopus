@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { ChatMessage } from '../molecules';
 
-export function ChatHistory({ messages }) {
+export function ChatHistory({ messages, avatars = {} }) {
   const endRef = useRef(null);
 
   // Autoscroll al último mensaje
@@ -16,7 +16,9 @@ export function ChatHistory({ messages }) {
           No hay mensajes aún. ¡Inicia el servidor y conéctate con tus amigos!
         </div>
       ) : (
-        messages.map((m, i) => <ChatMessage key={m.id ?? i} sender={m.sender} text={m.text} />)
+        messages.map((m, i) => (
+          <ChatMessage key={m.id ?? i} sender={m.sender} text={m.text} avatar={avatars[m.sender]} />
+        ))
       )}
       <div ref={endRef} />
     </div>

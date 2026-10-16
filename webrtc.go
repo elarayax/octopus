@@ -196,22 +196,16 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 	dc.OnOpen(func() {
 		if isChat {
 			runtime.EventsEmit(a.ctx, "peer_connected", fmt.Sprintf("Peer %s conectado", remoteID))
+			// Handshake: presentarse (nombre) y compartir el avatar propio
+			a.sendHello(dc)
+			a.sendAvatarTo(dc)
 		}
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		var pkt Packet
 		if err := json.Unmarshal(msg.Data, &pkt); err == nil {
-			if pkt.Type == "audio" {
-				runtime.EventsEmit(a.ctx, "receive_audio", pkt.Audio)
-			} else {
-				chatMsg := Message{
-					Sender: pkt.Sender,
-					Text:   pkt.Text,
-				}
-				a.saveMessage(pkt.Sender, pkt.Text)
-				runtime.EventsEmit(a.ctx, "receive_message", chatMsg)
-			}
+			a.handlePacket(remoteID, pkt)
 
 			// Retransmitir a los demás peers por el canal adecuado
 			a.mu.Lock()
@@ -237,6 +231,85 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 			runtime.EventsEmit(a.ctx, "peer_disconnected", remoteID)
 		}
 	})
+}
+
+// sendHello se presenta ante un peer (nombre + código fijo)
+func (a *App) sendHello(dc *webrtc.DataChannel) {
+	a.mu.Lock()
+	pkt := Packet{Type: "hello", Sender: a.username, Code: a.myCode}
+	a.mu.Unlock()
+	if raw, err := json.Marshal(pkt); err == nil {
+		_ = dc.SendText(string(raw))
+	}
+}
+
+// broadcastHello reenvía la presentación a todos los peers (tras cambiar de nombre)
+func (a *App) broadcastHello() {
+	a.mu.Lock()
+	sessions := make([]*PeerSession, 0, len(a.peers))
+	for _, s := range a.peers {
+		sessions = append(sessions, s)
+	}
+	a.mu.Unlock()
+
+	for _, s := range sessions {
+		if s.dc != nil && s.dc.ReadyState() == webrtc.DataChannelStateOpen {
+			a.sendHello(s.dc)
+		}
+	}
+}
+
+// handlePacket procesa los paquetes de control y chat recibidos
+func (a *App) handlePacket(remoteID string, pkt Packet) {
+	// Identificar al emisor: su código fijo o, si falta, el del canal directo
+	code := pkt.Code
+	if code == "" {
+		code = remoteID
+	}
+
+	switch pkt.Type {
+	case "audio":
+		runtime.EventsEmit(a.ctx, "receive_audio", pkt.Audio)
+
+	case "hello":
+		a.mu.Lock()
+		info := a.peerInfo[code]
+		info.Name = pkt.Sender
+		a.peerInfo[code] = info
+		avatar := info.Avatar
+		a.mu.Unlock()
+		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: pkt.Sender, Online: true, Avatar: avatar})
+
+	case "avatar":
+		dataURL := "data:image/webp;base64," + pkt.Avatar
+		a.mu.Lock()
+		info := a.peerInfo[code]
+		if pkt.Sender != "" {
+			info.Name = pkt.Sender
+		}
+		info.Avatar = dataURL
+		a.peerInfo[code] = info
+		name := info.Name
+		a.mu.Unlock()
+		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: name, Online: true, Avatar: dataURL})
+
+	default: // "text"
+		if pkt.Code != "" {
+			a.mu.Lock()
+			info := a.peerInfo[code]
+			if info.Name == "" {
+				info.Name = pkt.Sender
+				a.peerInfo[code] = info
+			}
+			a.mu.Unlock()
+		}
+		chatMsg := Message{
+			Sender: pkt.Sender,
+			Text:   pkt.Text,
+		}
+		a.saveMessage(pkt.Sender, pkt.Text)
+		runtime.EventsEmit(a.ctx, "receive_message", chatMsg)
+	}
 }
 
 func (a *App) handleIncomingOffer(fromPeerID, offerB64 string) {

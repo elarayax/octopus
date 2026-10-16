@@ -126,3 +126,200 @@
   border-radius: var(--radius-lg);
 }
 .chat-input .btn { padding: 0 22px; border-radius: var(--radius-lg); }
+
+/* ---------- UsersPanel ---------- */
+.users-panel__title {
+  margin: 0 0 var(--space-3);
+  font-size: 0.95rem;
+  color: var(--color-text-label);
+}
+.users-panel__empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-faint);
+}
+.users-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Máximo 4 usuarios visibles; el resto con scroll (fila 40px + gap 8px) */
+  max-height: 184px;
+  overflow-y: auto;
+}
+.users-panel__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+}
+.users-panel__row--offline { opacity: 0.55; }
+.users-panel__avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-surface-deep);
+}
+.users-panel__avatar--placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-label);
+  background: var(--color-neutral);
+}
+.users-panel__name {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.users-panel__you {
+  margin-left: 6px;
+  font-size: 0.75rem;
+  font-style: normal;
+  color: var(--color-text-faint);
+}
+.users-panel__status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ---------- SettingsModal ---------- */
+.settings-modal__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 8, 14, 0.65);
+  backdrop-filter: blur(3px);
+}
+.settings-modal {
+  width: min(420px, 90vw);
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  text-align: left;
+}
+.settings-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.settings-modal__header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+.settings-modal__avatar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.settings-modal__avatar {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-surface-deep);
+}
+.settings-modal__avatar--placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--color-text-label);
+  background: var(--color-neutral);
+}
+.settings-modal__avatar-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+.settings-modal__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--color-text-faint);
+}
+.settings-modal__field { margin-bottom: var(--space-2); }
+
+/* ---------- VoicePanel: configuración desplegable ---------- */
+.voice-config {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+.voice-config__summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.voice-config__summary::-webkit-details-marker { display: none; }
+.voice-config__summary::after {
+  content: "▸";
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+.voice-config[open] .voice-config__summary::after { transform: rotate(90deg); }
+.voice-config__summary:hover { color: var(--color-text-label); }
+.voice-config__body {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ---------- StatusBar: servidor + popover de puerto ---------- */
+.status-bar__server {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-bar__port { position: relative; }
+.port-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+.port-popover__label {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.port-popover .input { width: 80px; }

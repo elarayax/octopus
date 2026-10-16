@@ -10,6 +10,10 @@ export function GetAudioPrefs() {
   return window['go']['main']['App']['GetAudioPrefs']();
 }
 
+export function GetAvatar() {
+  return window['go']['main']['App']['GetAvatar']();
+}
+
 export function GetChatHistory() {
   return window['go']['main']['App']['GetChatHistory']();
 }
@@ -24,6 +28,10 @@ export function GetNodeInfo() {
 
 export function GetUsername() {
   return window['go']['main']['App']['GetUsername']();
+}
+
+export function GetUsers() {
+  return window['go']['main']['App']['GetUsers']();
 }
 
 export function LoadCustomCSS() {
@@ -48,6 +56,10 @@ export function SendMessage(arg1) {
 
 export function SetAudioPrefs(arg1, arg2) {
   return window['go']['main']['App']['SetAudioPrefs'](arg1, arg2);
+}
+
+export function SetAvatarFromDialog() {
+  return window['go']['main']['App']['SetAvatarFromDialog']();
 }
 
 export function SetUsername(arg1) {

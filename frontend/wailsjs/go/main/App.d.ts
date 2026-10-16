@@ -6,6 +6,8 @@ export function ConnectToPeer(arg1:string):Promise<string>;
 
 export function GetAudioPrefs():Promise<main.AudioPrefs>;
 
+export function GetAvatar():Promise<string>;
+
 export function GetChatHistory():Promise<Array<main.Message>>;
 
 export function GetMyCode():Promise<string>;
@@ -13,6 +15,8 @@ export function GetMyCode():Promise<string>;
 export function GetNodeInfo():Promise<main.NodeInfo>;
 
 export function GetUsername():Promise<string>;
+
+export function GetUsers():Promise<Array<main.UserEntry>>;
 
 export function LoadCustomCSS():Promise<string>;
 
@@ -25,6 +29,8 @@ export function SendAudio(arg1:string):Promise<string>;
 export function SendMessage(arg1:string):Promise<string>;
 
 export function SetAudioPrefs(arg1:number,arg2:number):Promise<void>;
+
+export function SetAvatarFromDialog():Promise<string>;
 
 export function SetUsername(arg1:string):Promise<string>;
 

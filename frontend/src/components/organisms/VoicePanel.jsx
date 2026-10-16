@@ -42,27 +42,32 @@ export function VoicePanel({ call }) {
         </div>
       </div>
 
-      <DeviceSelect
-        devices={call.devices}
-        value={call.selectedId}
-        onChange={call.changeDevice}
-        onRefresh={call.refreshDevices}
-      />
-      <LevelMeter ref={call.meterRef} />
-      <SliderRow
-        id="mic-gain"
-        label="🎙️ Tu volumen"
-        value={call.micGain}
-        onChange={call.setMicGain}
-        accent="var(--color-success-bright)"
-      />
-      <SliderRow
-        id="playback-gain"
-        label="🔊 Voz recibida"
-        value={call.playbackGain}
-        onChange={call.setPlaybackGain}
-        accent="var(--color-info-soft)"
-      />
+      <details className="voice-config">
+        <summary className="voice-config__summary">⚙️ Configuración de micrófono y volúmenes</summary>
+        <div className="voice-config__body">
+          <DeviceSelect
+            devices={call.devices}
+            value={call.selectedId}
+            onChange={call.changeDevice}
+            onRefresh={call.refreshDevices}
+          />
+          <LevelMeter ref={call.meterRef} />
+          <SliderRow
+            id="mic-gain"
+            label="🎙️ Tu volumen"
+            value={call.micGain}
+            onChange={call.setMicGain}
+            accent="var(--color-success-bright)"
+          />
+          <SliderRow
+            id="playback-gain"
+            label="🔊 Voz recibida"
+            value={call.playbackGain}
+            onChange={call.setPlaybackGain}
+            accent="var(--color-info-soft)"
+          />
+        </div>
+      </details>
     </section>
   );
 }

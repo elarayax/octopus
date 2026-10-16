@@ -1,0 +1,7 @@
+/* Orden importante: tokens -> base -> atomic design de menor a mayor */
+@import './variables.css';
+@import './base.css';
+@import './atoms.css';
+@import './molecules.css';
+@import './organisms.css';
+@import './templates.css';

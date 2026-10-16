@@ -1,0 +1,69 @@
+.main-layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    'header header'
+    'status status'
+    'side   chat';
+  gap: 18px;
+  height: 100vh;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Mod: sidebarPosition = "right" */
+.main-layout--sidebar-right {
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-width);
+  grid-template-areas:
+    'header header'
+    'status status'
+    'chat   side';
+}
+
+.main-layout__header { grid-area: header; }
+.main-layout__status { grid-area: status; }
+
+.main-layout__sidebar {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.main-layout__chat {
+  grid-area: chat;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Pantallas angostas: una sola columna */
+@media (max-width: 760px) {
+  .main-layout,
+  .main-layout--sidebar-right {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto minmax(320px, 1fr);
+    grid-template-areas:
+      'header'
+      'status'
+      'side'
+      'chat';
+    height: auto;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  .main-layout__sidebar { overflow: visible; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .input,
+  .voice-panel,
+  .level-meter__bar { transition: none; }
+}

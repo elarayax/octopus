@@ -1,0 +1,60 @@
+/* Tokens de diseño. Los mods pueden sobrescribirlos desde :root */
+:root {
+  /* Tipografía */
+  --font-sans: ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Fondo y texto */
+  --color-bg: #12111a;
+  --color-text: #ece9f7;
+  --color-text-muted: #9a96b5;
+  --color-text-label: #b4b0cc;
+  --color-text-faint: #6f6b8a;
+
+  /* Superficies */
+  --color-surface: #1b1a27;
+  --color-surface-alt: #171622;
+  --color-surface-deep: #100f18;
+  --color-surface-card: #222135;
+  --color-surface-chat: #161521;
+  --color-surface-voice-active: #14262b;
+
+  /* Bordes */
+  --color-border: #2c2a40;
+  --color-border-strong: #3b3956;
+  --color-border-chat: #26243a;
+
+  /* Acciones */
+  --color-neutral: #2b2a42;
+  --color-secondary: #34324d;
+  --color-primary: #6d5df0;
+  --color-primary-soft: #c4bcff;
+  --color-info: #4a68e8;
+  --color-info-soft: #8fb0ff;
+  --color-danger: #d6455d;
+  --color-danger-dark: #b93349;
+  --color-warning: #f2b44c;
+
+  /* "En vivo" */
+  --color-success: #2bb38a;
+  --color-success-bright: #4fe0b0;
+  --color-success-soft: #9af2d4;
+
+  --color-accent: #a99cff;
+
+  /* Forma */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Espaciado */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+
+  /* Layout */
+  --sidebar-width: 350px;
+}

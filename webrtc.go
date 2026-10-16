@@ -35,10 +35,25 @@ func generateRoomCode() string {
 	return string(b)
 }
 
-func getOrCreateFixedCode(port string) string {
-	if port == "" {
-		port = "8080"
+// codeFromKey deriva un código de 6 caracteres del hash de la identidad
+func codeFromKey(keyData []byte) string {
+	h := sha256.Sum256(keyData)
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	var sb strings.Builder
+	for i := 0; i < 6; i++ {
+		sb.WriteByte(chars[int(h[i])%len(chars)])
 	}
+	return sb.String()
+}
+
+func persistCode(codePath, code string) string {
+	_ = os.WriteFile(codePath, []byte(code), 0600)
+	return code
+}
+
+// getOrCreateFixedCode devuelve el código fijo del equipo (por usuario del SO).
+// Es estable: NO cambia aunque cambie el puerto, la red o el nombre de usuario.
+func getOrCreateFixedCode() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return generateRoomCode()
@@ -47,30 +62,51 @@ func getOrCreateFixedCode(port string) string {
 	configDir := filepath.Join(homeDir, ".chat_p2p")
 	_ = os.MkdirAll(configDir, 0700)
 
-	codeFilePath := filepath.Join(configDir, fmt.Sprintf("fixed_code_%s.txt", port))
-	if data, err := os.ReadFile(codeFilePath); err == nil {
-		code := strings.TrimSpace(string(data))
-		if len(code) == 6 {
+	codePath := filepath.Join(configDir, "fixed_code.txt")
+	keyPath := filepath.Join(configDir, "identity.key")
+
+	// 1. Ya existe un código global para este equipo
+	if data, err := os.ReadFile(codePath); err == nil {
+		if code := strings.ToUpper(strings.TrimSpace(string(data))); len(code) == 6 {
 			return code
 		}
 	}
 
-	keyFilePath := filepath.Join(configDir, fmt.Sprintf("identity_%s.key", port))
-	if keyData, err := os.ReadFile(keyFilePath); err == nil && len(keyData) > 0 {
-		h := sha256.Sum256(keyData)
-		chars := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-		var sb strings.Builder
-		for i := 0; i < 6; i++ {
-			sb.WriteByte(chars[int(h[i])%len(chars)])
+	// 2. Migración: adoptar el código viejo por-puerto que los amigos ya
+	//    conocen (fixed_code_*.txt, en orden: 8080 primero)
+	if matches, _ := filepath.Glob(filepath.Join(configDir, "fixed_code_*.txt")); len(matches) > 0 {
+		for _, m := range matches {
+			if data, err := os.ReadFile(m); err == nil {
+				if code := strings.ToUpper(strings.TrimSpace(string(data))); len(code) == 6 {
+					return persistCode(codePath, code)
+				}
+			}
 		}
-		code := sb.String()
-		_ = os.WriteFile(codeFilePath, []byte(code), 0600)
-		return code
 	}
 
-	newCode := generateRoomCode()
-	_ = os.WriteFile(codeFilePath, []byte(newCode), 0600)
-	return newCode
+	// 3. Existe identidad global: derivar el código de ella (determinista)
+	if keyData, err := os.ReadFile(keyPath); err == nil && len(keyData) > 0 {
+		return persistCode(codePath, codeFromKey(keyData))
+	}
+
+	// 4. Migración de identidades antiguas por-puerto
+	if matches, _ := filepath.Glob(filepath.Join(configDir, "identity_*.key")); len(matches) > 0 {
+		for _, m := range matches {
+			if keyData, err := os.ReadFile(m); err == nil && len(keyData) > 0 {
+				// Conservar la identidad como la nueva global
+				_ = os.WriteFile(keyPath, keyData, 0600)
+				return persistCode(codePath, codeFromKey(keyData))
+			}
+		}
+	}
+
+	// 5. Primera vez en este equipo: crear identidad nueva y derivar el código
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return persistCode(codePath, generateRoomCode())
+	}
+	_ = os.WriteFile(keyPath, key, 0600)
+	return persistCode(codePath, codeFromKey(key))
 }
 
 func getRTCConfig() webrtc.Configuration {
@@ -95,7 +131,7 @@ func (a *App) StartServer(port string) string {
 	a.stopPoll = make(chan struct{})
 	stopChan := a.stopPoll
 	a.myPort = port
-	a.myCode = getOrCreateFixedCode(port)
+	a.myCode = getOrCreateFixedCode()
 	code := a.myCode
 	a.mu.Unlock()
 

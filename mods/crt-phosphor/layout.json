@@ -1,0 +1,9 @@
+{
+  "themeName": "CRT Phosphor",
+  "sidebarPosition": "left",
+  "panels": {
+    "connection": true,
+    "nodeInfo": true,
+    "voice": true
+  }
+}

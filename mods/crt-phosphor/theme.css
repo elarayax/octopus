@@ -1,0 +1,221 @@
+/* ============================================================
+   MOD: CRT PHOSPHOR — Terminal verde de computador antiguo
+   Simula un monitor de fósforo verde (P1) años 70-80:
+   scanlines, brillo de fósforo, viñeta y parpadeo sutil.
+   ============================================================ */
+
+:root {
+  --phosphor: #33ff66;          /* verde fósforo principal */
+  --phosphor-dim: #1fcc55;      /* verde medio */
+  --phosphor-dark: #0d9939;     /* verde apagado */
+  --phosphor-faint: #0a5c24;    /* bordes / detalles */
+  --crt-bg: #020603;            /* fondo del tubo */
+  --crt-panel: rgba(6, 20, 10, 0.92);
+  --crt-glow: 0 0 6px rgba(51, 255, 102, 0.55);
+}
+
+/* ---------- Base: todo verde y monoespaciado ---------- */
+body {
+  background-color: var(--crt-bg) !important;
+  color: var(--phosphor) !important;
+  font-family: 'Courier New', Courier, monospace !important;
+  text-shadow: 0 0 4px rgba(51, 255, 102, 0.45);
+}
+
+* {
+  font-family: 'Courier New', Courier, monospace !important;
+}
+
+::selection {
+  background: var(--phosphor) !important;
+  color: #021207 !important;
+  text-shadow: none;
+}
+
+/* ---------- Efecto CRT: scanlines + viñeta + flicker ---------- */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0px,
+      rgba(0, 0, 0, 0) 2px,
+      rgba(0, 0, 0, 0.22) 3px,
+      rgba(0, 0, 0, 0.22) 4px
+    );
+  animation: crt-flicker 4s infinite;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9997;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0) 55%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+@keyframes crt-flicker {
+  0%, 100% { opacity: 1; }
+  97%      { opacity: 1; }
+  98%      { opacity: 0.86; }
+  99%      { opacity: 0.95; }
+}
+
+/* ---------- Títulos y textos ---------- */
+h1, h2, h3, strong, b, label, span, div, p {
+  color: var(--phosphor) !important;
+}
+
+.app-header__title::before {
+  content: "> ";
+  color: var(--phosphor-dark);
+}
+
+.app-header__title::after {
+  content: "█";
+  margin-left: 6px;
+  animation: crt-cursor 1.1s steps(1) infinite;
+}
+
+@keyframes crt-cursor {
+  0%, 55%   { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+
+/* ---------- Paneles ---------- */
+.panel,
+.voice-panel,
+.node-card,
+.status-bar,
+.chat-history {
+  background: var(--crt-panel) !important;
+  border: 1px solid var(--phosphor-faint) !important;
+  border-radius: 2px !important;
+  box-shadow: inset 0 0 18px rgba(51, 255, 102, 0.06),
+              0 0 10px rgba(51, 255, 102, 0.08) !important;
+}
+
+/* ---------- Botones ---------- */
+button {
+  background: rgba(10, 40, 18, 0.85) !important;
+  color: var(--phosphor) !important;
+  border: 1px solid var(--phosphor-dark) !important;
+  border-radius: 2px !important;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  text-shadow: var(--crt-glow);
+  box-shadow: 0 0 6px rgba(51, 255, 102, 0.25) !important;
+  transition: all 0.15s ease;
+}
+
+button:hover {
+  background: var(--phosphor) !important;
+  color: #021207 !important;
+  text-shadow: none;
+  box-shadow: 0 0 14px rgba(51, 255, 102, 0.7) !important;
+}
+
+/* El botón de salir de voz queda en verde igual, pero parpadea */
+.voice-btn-leave {
+  animation: crt-cursor 1.6s steps(1) infinite;
+}
+
+/* ---------- Inputs y selects ---------- */
+input[type="text"],
+input:not([type]),
+input[type="range"],
+select,
+.voice-select {
+  background: #031007 !important;
+  color: var(--phosphor) !important;
+  border: 1px solid var(--phosphor-faint) !important;
+  border-radius: 2px !important;
+  caret-color: var(--phosphor);
+  text-shadow: var(--crt-glow);
+}
+
+input::placeholder {
+  color: var(--phosphor-faint) !important;
+  text-shadow: none;
+}
+
+input:focus, select:focus {
+  outline: none !important;
+  border-color: var(--phosphor) !important;
+  box-shadow: 0 0 10px rgba(51, 255, 102, 0.45) !important;
+}
+
+/* Sliders en verde fósforo */
+input[type="range"] {
+  accent-color: var(--phosphor) !important;
+}
+
+/* ---------- Historial de chat: estilo terminal ---------- */
+.chat-history {
+  background: #020a04 !important;
+  padding: 12px !important;
+}
+
+.chat-message__sender {
+  color: var(--phosphor-dim) !important;
+}
+
+.chat-message__sender::after {
+  content: " >";
+  color: var(--phosphor-dark);
+}
+
+.chat-message__text {
+  color: var(--phosphor) !important;
+}
+
+.chat-history__empty {
+  color: var(--phosphor-faint) !important;
+}
+
+.chat-history__empty::before {
+  content: "// ";
+}
+
+/* ---------- Tu ID fijo: que brille como protagonista ---------- */
+.node-card__code {
+  color: var(--phosphor) !important;
+  text-shadow: 0 0 10px rgba(51, 255, 102, 0.9),
+               0 0 24px rgba(51, 255, 102, 0.4) !important;
+  letter-spacing: 4px;
+}
+
+/* ---------- Medidor de nivel y estados ---------- */
+.level-meter__track {
+  background: #031007 !important;
+  border: 1px solid var(--phosphor-faint) !important;
+}
+
+.status-bar__peers,
+.stat-item {
+  color: var(--phosphor-dim) !important;
+}
+
+/* ---------- Scrollbar estilo terminal ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  background: #020a04;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--phosphor-faint);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--phosphor-dark);
+}

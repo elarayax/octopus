@@ -98,6 +98,85 @@ cd ..
 # 4. Iniciar en modo desarrollo
 CC=/usr/bin/clang wails dev
 
+---
+
+## 🎨 Temas y Mods (Personalización de la Interfaz)
+
+La app soporta **temas personalizados** mediante archivos que vive fuera del código fuente, así que puedes cambiarle toda la apariencia sin recompilar nada.
+
+> **Tema actual instalado: `CRT Phosphor`** 🟢 (terminal verde de computador antiguo, con scanlines y brillo de fósforo)
+
+### A. Dónde viven los mods
+
+```
+~/.chat_p2p/mods/default/
+├── theme.css     ← el tema (todo el estilo personalizado)
+└── layout.json   ← nombre del tema y paneles visibles
+```
+
+Tip: desde la propia app, el botón **📁 Abrir carpeta de Mods** te lleva directo a esta carpeta.
+
+### B. Cómo funciona
+
+* Al iniciar, la app lee `theme.css` y lo inyecta en la interfaz.
+* El botón **🔄 Actualizar Mod** recarga el CSS y el layout **sin reiniciar la app** — es el flujo ideal para ir probando cambios en vivo.
+* Si `theme.css` no existe, la app crea uno de ejemplo automáticamente.
+* Para **volver al tema por defecto**: borra (o renombra) `theme.css` y presiona 🔄 Actualizar Mod.
+
+### C. Crear tu propio tema
+
+1. Abre la carpeta de mods (botón 📁 en la app).
+2. Edita `theme.css` con tu editor favorito.
+3. Guarda y presiona **🔄 Actualizar Mod** en la app. ¡Eso es todo!
+
+Reglas del juego:
+
+* Usa `!important` en tus reglas: el tema debe ganarle a los estilos base de la app.
+* Todo el texto y colores se controlan por clases CSS (la app casi no usa estilos en línea).
+* Puedes usar `body::before` / `body::after` para efectos de pantalla completa (el tema CRT los usa para la viñeta y las scanlines).
+
+### D. Referencia de clases CSS disponibles
+
+| Clase | Qué es |
+|---|---|
+| `.app-header__title` | Título principal |
+| `.status-bar` / `.status-bar__peers` | Barra de estado y contador de peers |
+| `.panel` / `.voice-panel` / `.node-card` | Tarjetas/paneles contenedores |
+| `.voice-header` / `.voice-actions` / `.voice-info__title` | Panel de voz |
+| `.voice-btn-join` / `-mute` / `-leave` / `-refresh` | Botones del panel de voz |
+| `.voice-select` / `.voice-device-selector` | Selector de micrófono |
+| `.level-meter__track` / `.level-meter__bar` | Medidor de nivel de micrófono |
+| `.slider-row` / `.slider-row__value` | Filas de sliders de volumen |
+| `.node-card__code` / `.node-card__hint` | Tu ID fijo y su descripción |
+| `.chat-history` / `.chat-history__empty` | Historial de mensajes |
+| `.chat-message__sender` / `.chat-message__text` | Remitente y texto de cada mensaje |
+| `.chat-input` / `.input-with-button` | Caja de envío de mensajes |
+
+Y por supuesto: `body`, `button`, `input`, `select` y `::-webkit-scrollbar` funcionan como en cualquier página web.
+
+### E. El `layout.json`
+
+```json
+{
+  "themeName": "CRT Phosphor",
+  "sidebarPosition": "left",
+  "panels": {
+    "voice": true,
+    "connection": true,
+    "nodeInfo": true
+  }
+}
+```
+
+* `themeName`: el nombre de tu tema (puro etiquetado, ponle el que quieras).
+* `panels`: pon `false` para ocultar un panel de la interfaz sin tocar código.
+
+### F. Compartir tu tema
+
+Un tema es solo la carpeta con los dos archivos. Copia `theme.css` (+ `layout.json`) a la carpeta `~/.chat_p2p/mods/default/` de otro equipo y listo. En este repo hay un tema de ejemplo completo en 📁 `mods/crt-phosphor/` (incluye un `preview.html` para verlo sin abrir la app).
+
+---
+
 ## 🪟 Guía de Desarrollo en Windows (10 / 11)
 
 ### 📋 Requisitos Previos en Windows
@@ -230,9 +309,3 @@ chmod +x build/bin/chat
 Causa: Faltan las librerías de desarrollo de GTK3 o WebKit en el sistema.
 
 Solución: Revisa el paso 1 e instala libgtk-3-dev y libwebkit2gtk-4.0-dev (o sus equivalentes en tu distro).
-
-
-<ElicitationsGroup message="¿Te gustaría realizar alguna prueba adicional o pasar directamente al siguiente paso del desarrollo?">
-  <Elicitation label="Probar nombres de usuario" query="Ya guardé la documentación. Probemos el cambio de nombres de usuario en las dos ventanas."/>
-  <Elicitation label="Integrar go-libp2p" query="Pasemos a integrar go-libp2p para el descubrimiento y conexión P2P sin IP manual."/>
-</ElicitationsGroup>

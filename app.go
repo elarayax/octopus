@@ -160,26 +160,28 @@ func (a *App) GetNodeInfo() NodeInfo {
 	}
 }
 
-// GetUsers devuelve la lista de usuarios: tú primero, luego los peers
-// conectados (activos) y al final los conocidos de SQLite (inactivos)
+// GetUsers devuelve la lista de usuarios: tú primero, luego los usuarios
+// activos (peers directos o alcanzados vía relay) y al final los conocidos
+// de SQLite que no están activos (inactivos)
 func (a *App) GetUsers() []UserEntry {
 	a.mu.Lock()
 	own := a.username
+	ownCode := a.myCode
 	infos := make(map[string]PeerInfo, len(a.peerInfo))
 	for k, v := range a.peerInfo {
 		infos[k] = v
-	}
-	peerCodes := make([]string, 0, len(a.peers))
-	for code := range a.peers {
-		peerCodes = append(peerCodes, code)
 	}
 	a.mu.Unlock()
 
 	users := []UserEntry{{Name: own, Online: true, Avatar: a.avatarDataURL(), Self: true}}
 	seen := map[string]bool{own: true}
 
-	for _, code := range peerCodes {
-		info := infos[code]
+	// Activos: peerInfo se mantiene limpio (bye / desconexión), así que
+	// cualquiera presente aquí está alcanzable, directo o vía relay
+	for code, info := range infos {
+		if code == ownCode {
+			continue
+		}
 		name := info.Name
 		if name == "" {
 			name = "Peer " + code

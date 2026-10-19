@@ -199,6 +199,9 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 			// Handshake: presentarse (nombre) y compartir el avatar propio
 			a.sendHello(dc)
 			a.sendAvatarTo(dc)
+			// Presentarle también los demás usuarios conocidos (topología
+			// estrella: los clientes no se hablan directo entre ellos)
+			a.sendKnownPeersTo(dc)
 		}
 	})
 
@@ -259,6 +262,54 @@ func (a *App) broadcastHello() {
 	}
 }
 
+// sendKnownPeersTo presenta a un peer recién conectado todos los usuarios que
+// ya conocemos (nombre y avatar), para que los clientes de una red en estrella
+// se vean entre ellos aunque no tengan canal directo
+func (a *App) sendKnownPeersTo(dc *webrtc.DataChannel) {
+	a.mu.Lock()
+	myCode := a.myCode
+	known := make(map[string]PeerInfo, len(a.peerInfo))
+	for code, info := range a.peerInfo {
+		known[code] = info
+	}
+	a.mu.Unlock()
+
+	for code, info := range known {
+		if code == myCode || info.Name == "" {
+			continue
+		}
+		if raw, err := json.Marshal(Packet{Type: "hello", Sender: info.Name, Code: code}); err == nil {
+			_ = dc.SendText(string(raw))
+		}
+		if info.Avatar != "" {
+			b64 := strings.TrimPrefix(info.Avatar, "data:image/webp;base64,")
+			if raw, err := json.Marshal(Packet{Type: "avatar", Sender: info.Name, Code: code, Avatar: b64}); err == nil {
+				_ = dc.SendText(string(raw))
+			}
+		}
+	}
+}
+
+// broadcastBye avisa a los demás peers que un usuario se fue
+func (a *App) broadcastBye(code string) {
+	a.mu.Lock()
+	sessions := make([]*PeerSession, 0, len(a.peers))
+	for _, s := range a.peers {
+		sessions = append(sessions, s)
+	}
+	a.mu.Unlock()
+
+	raw, err := json.Marshal(Packet{Type: "bye", Code: code})
+	if err != nil {
+		return
+	}
+	for _, s := range sessions {
+		if s.dc != nil && s.dc.ReadyState() == webrtc.DataChannelStateOpen {
+			_ = s.dc.SendText(string(raw))
+		}
+	}
+}
+
 // handlePacket procesa los paquetes de control y chat recibidos
 func (a *App) handlePacket(remoteID string, pkt Packet) {
 	// Identificar al emisor: su código fijo o, si falta, el del canal directo
@@ -272,6 +323,9 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 		runtime.EventsEmit(a.ctx, "receive_audio", pkt.Audio)
 
 	case "hello":
+		if code == a.myCode {
+			break
+		}
 		a.mu.Lock()
 		info := a.peerInfo[code]
 		info.Name = pkt.Sender
@@ -281,6 +335,9 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: pkt.Sender, Online: true, Avatar: avatar})
 
 	case "avatar":
+		if code == a.myCode {
+			break
+		}
 		dataURL := "data:image/webp;base64," + pkt.Avatar
 		a.mu.Lock()
 		info := a.peerInfo[code]
@@ -292,6 +349,12 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 		name := info.Name
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: name, Online: true, Avatar: dataURL})
+
+	case "bye":
+		a.mu.Lock()
+		delete(a.peerInfo, code)
+		a.mu.Unlock()
+		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: "", Online: false})
 
 	default: // "text"
 		if pkt.Code != "" {
@@ -351,9 +414,7 @@ func (a *App) handleIncomingOffer(fromPeerID, offerB64 string) {
 	})
 
 	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if state == webrtc.ICEConnectionStateConnected {
-			runtime.EventsEmit(a.ctx, "peer_connected", fmt.Sprintf("Peer %s conectado vía WebRTC", fromPeerID))
-		} else if state == webrtc.ICEConnectionStateDisconnected || state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateClosed {
+		if state == webrtc.ICEConnectionStateDisconnected || state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateClosed {
 			a.removePeer(fromPeerID)
 			runtime.EventsEmit(a.ctx, "peer_disconnected", fromPeerID)
 		}
@@ -430,13 +491,23 @@ func (a *App) sendSignal(to, sigType, sdp string) error {
 
 func (a *App) removePeer(id string) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	var remaining int
 	if s, exists := a.peers[id]; exists {
 		if s.pc != nil {
 			_ = s.pc.Close()
 		}
 		delete(a.peers, id)
 	}
+	remaining = len(a.peers)
+	delete(a.peerInfo, id)
+	if remaining == 0 {
+		// Sin peers directos ya no llegamos a nadie: limpiar la agenda
+		a.peerInfo = make(map[string]PeerInfo)
+	}
+	a.mu.Unlock()
+
+	// Avisar a los demás que este usuario se fue (red en estrella)
+	a.broadcastBye(id)
 }
 
 func (a *App) ConnectToPeer(input string) string {
@@ -519,9 +590,7 @@ func (a *App) ConnectToPeer(input string) string {
 	a.setupDataChannel(target, dca)
 
 	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		if state == webrtc.ICEConnectionStateConnected {
-			runtime.EventsEmit(a.ctx, "peer_connected", fmt.Sprintf("Peer %s conectado vía WebRTC", target))
-		} else if state == webrtc.ICEConnectionStateDisconnected || state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateClosed {
+		if state == webrtc.ICEConnectionStateDisconnected || state == webrtc.ICEConnectionStateFailed || state == webrtc.ICEConnectionStateClosed {
 			a.removePeer(target)
 			runtime.EventsEmit(a.ctx, "peer_disconnected", target)
 		}

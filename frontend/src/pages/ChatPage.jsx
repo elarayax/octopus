@@ -62,7 +62,7 @@ export default function ChatPage() {
         status={
           <StatusBar
             status={p2p.status}
-            peers={p2p.peers.length}
+            peers={users.users.filter((u) => u.online && !u.self).length}
             server={{ port: p2p.port, onPortChange: p2p.setPort, onStart: p2p.startServer }}
           />
         }

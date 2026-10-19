@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useToast, useMods, useProfile, useP2P, useChat, useVoiceCall, useUsers } from '../hooks';
+import { useToast, useMods, useProfile, useP2P, useChat, useVoiceCall, useUsers, useChannel } from '../hooks';
 import { Toast } from '../components/atoms';
 import {
   AppHeader,
@@ -22,6 +22,7 @@ export default function ChatPage() {
   const chat = useChat({ notify });
   const call = useVoiceCall({ notify });
   const users = useUsers();
+  const { channel, save: saveChannel } = useChannel();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -54,6 +55,7 @@ export default function ChatPage() {
         layout={mods.layout}
         header={
           <AppHeader
+            channel={channel}
             onRefreshMods={mods.reload}
             onOpenMods={mods.openFolder}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -63,7 +65,13 @@ export default function ChatPage() {
           <StatusBar
             status={p2p.status}
             peers={users.users.filter((u) => u.online && !u.self).length}
-            server={{ port: p2p.port, onPortChange: p2p.setPort, onStart: p2p.startServer }}
+            server={{
+              port: p2p.port,
+              onPortChange: p2p.setPort,
+              onStart: p2p.startServer,
+              channel,
+              onSaveChannel: saveChannel,
+            }}
           />
         }
         panels={{

@@ -5,6 +5,20 @@ Guía rápida de comandos, flujo de trabajo y resolución de errores para el des
 
 ---
 
+## ✨ Funcionalidades
+
+- **Chat de texto P2P** con historial persistente en SQLite (`~/.chat_p2p/app_data.db`) y **sincronización automática de historiales** al conectarse (fusión idempotente, sin duplicados, orden cronológico).
+- **Imágenes en el chat** (📎): PNG/JPG/WebP y **GIFs animados**, optimizadas automáticamente a WebP (máx. 800px / 400 KB; los GIF se convierten a WebP animado).
+- **Voz en vivo** sobre canal de datos no fiable (baja latencia), con selector de micrófono, medidor de nivel y control de ganancia (plegados en un desplegable).
+- **Perfil de usuario persistente**: nombre y **foto de perfil** (imagen o GIF, optimizada a WebP de 128px). El avatar se comparte automáticamente con los peers al conectar.
+- **Panel de usuarios**: muestra a **todos los que alguna vez se conectaron al canal** (roster persistente en la tabla `miembro`), activos 🟢 primero e inactivos ⚪ después — con foto aunque estén desconectados. Máx. 4 visibles + scroll.
+- **Identidad del canal**: al iniciar el servidor se puede definir **nombre, subtítulo e ícono** (popover del ⚙️ en la barra de estado). El host lo transmite a todos los peers; cambia el header y el título de la ventana.
+- **ID de equipo permanente**: código de 6 caracteres derivado de una identidad única por máquina; no cambia aunque cambies de red, puerto o nombre de usuario.
+- **Red en estrella**: los mensajes, avatares, roster e historial se retransmiten vía el host, así que los clientes se ven entre ellos sin conexión directa.
+- **Temas y mods** con recarga en caliente (ver sección 🎨 más abajo).
+
+---
+
 ## 💻 1. Comandos de Trabajo Diario
 
 En macOS Sequoia / Apple Silicon es necesario especificar el compilador nativo (`/usr/bin/clang`) y los *frameworks* del sistema para evitar fallos de enlace con CGO (`_OBJC_CLASS_$_UTType`).

@@ -14,6 +14,10 @@ export function GetAvatar() {
   return window['go']['main']['App']['GetAvatar']();
 }
 
+export function GetChannelInfo() {
+  return window['go']['main']['App']['GetChannelInfo']();
+}
+
 export function GetChatHistory() {
   return window['go']['main']['App']['GetChatHistory']();
 }
@@ -64,6 +68,10 @@ export function SetAudioPrefs(arg1, arg2) {
 
 export function SetAvatarFromDialog() {
   return window['go']['main']['App']['SetAvatarFromDialog']();
+}
+
+export function SetChannelInfo(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetChannelInfo'](arg1, arg2, arg3);
 }
 
 export function SetUsername(arg1) {

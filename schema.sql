@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS foro_comentario (
 );
 
 -- ==========================================
+--  MIEMBROS DEL CANAL (directorio persistente)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS miembro (
+    codigo VARCHAR(6) PRIMARY KEY,
+    nombre VARCHAR(255) NOT NULL,
+    avatar TEXT,
+    ultima_vez DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
 --  CONFIGURACIÓN DE LA APP (clave-valor)
 -- ==========================================
 CREATE TABLE IF NOT EXISTS configuracion (

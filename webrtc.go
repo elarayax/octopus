@@ -140,6 +140,7 @@ func (a *App) StartServer(port string) string {
 	a.stopPoll = make(chan struct{})
 	stopChan := a.stopPoll
 	a.myPort = port
+	a.isHost = true
 	a.myCode = getOrCreateFixedCode()
 	code := a.myCode
 	a.mu.Unlock()
@@ -215,6 +216,13 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 			if raw, err := json.Marshal(Packet{Type: "history_req", Code: a.myCode}); err == nil {
 				_ = dc.SendText(string(raw))
 			}
+			// El host comparte la identidad del canal
+			a.mu.Lock()
+			isHost := a.isHost
+			a.mu.Unlock()
+			if isHost {
+				a.broadcastChannelInfo(a.GetChannelInfo())
+			}
 		}
 	})
 
@@ -275,30 +283,49 @@ func (a *App) broadcastHello() {
 	}
 }
 
-// sendKnownPeersTo presenta a un peer recién conectado todos los usuarios que
-// ya conocemos (nombre y avatar), para que los clientes de una red en estrella
-// se vean entre ellos aunque no tengan canal directo
+// sendKnownPeersTo envía a un peer recién conectado el directorio COMPLETO del
+// canal (todos los que alguna vez se han conectado), con su estado de presencia
 func (a *App) sendKnownPeersTo(dc *webrtc.DataChannel) {
 	a.mu.Lock()
 	myCode := a.myCode
-	known := make(map[string]PeerInfo, len(a.peerInfo))
-	for code, info := range a.peerInfo {
-		known[code] = info
+	online := make(map[string]bool, len(a.onlineSet))
+	for k, v := range a.onlineSet {
+		online[k] = v
 	}
 	a.mu.Unlock()
 
-	for code, info := range known {
-		if code == myCode || info.Name == "" {
+	for _, m := range a.getMiembros() {
+		if m.Codigo == myCode {
 			continue
 		}
-		if raw, err := json.Marshal(Packet{Type: "hello", Sender: info.Name, Code: code}); err == nil {
+		pkt := Packet{Type: "roster", Sender: m.Nombre, Code: m.Codigo, Avatar: m.Avatar, Online: online[m.Codigo]}
+		if raw, err := json.Marshal(pkt); err == nil {
 			_ = dc.SendText(string(raw))
 		}
-		if info.Avatar != "" {
-			b64 := strings.TrimPrefix(info.Avatar, "data:image/webp;base64,")
-			if raw, err := json.Marshal(Packet{Type: "avatar", Sender: info.Name, Code: code, Avatar: b64}); err == nil {
-				_ = dc.SendText(string(raw))
-			}
+	}
+}
+
+// broadcastChannelInfo envía la identidad del canal a todos los peers
+func (a *App) broadcastChannelInfo(info ChannelInfo) {
+	raw, err := json.Marshal(info)
+	if err != nil {
+		return
+	}
+	pkt, err := json.Marshal(Packet{Type: "channel", Channel: string(raw)})
+	if err != nil {
+		return
+	}
+
+	a.mu.Lock()
+	sessions := make([]*PeerSession, 0, len(a.peers))
+	for _, s := range a.peers {
+		sessions = append(sessions, s)
+	}
+	a.mu.Unlock()
+
+	for _, s := range sessions {
+		if s.dc != nil && s.dc.ReadyState() == webrtc.DataChannelStateOpen {
+			_ = s.dc.SendText(string(pkt))
 		}
 	}
 }
@@ -340,34 +367,56 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 			break
 		}
 		a.mu.Lock()
-		info := a.peerInfo[code]
-		info.Name = pkt.Sender
-		a.peerInfo[code] = info
-		avatar := info.Avatar
+		a.onlineSet[code] = true
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: pkt.Sender, Online: true, Avatar: avatar})
+		a.upsertMiembro(code, pkt.Sender, "")
+		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: pkt.Sender, Online: true})
 
 	case "avatar":
 		if code == a.myCode {
 			break
 		}
-		dataURL := "data:image/webp;base64," + pkt.Avatar
 		a.mu.Lock()
-		info := a.peerInfo[code]
-		if pkt.Sender != "" {
-			info.Name = pkt.Sender
-		}
-		info.Avatar = dataURL
-		a.peerInfo[code] = info
-		name := info.Name
+		a.onlineSet[code] = true
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: name, Online: true, Avatar: dataURL})
+		a.upsertMiembro(code, pkt.Sender, pkt.Avatar)
+		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: pkt.Sender, Online: true, Avatar: "data:image/webp;base64," + pkt.Avatar})
+
+	case "roster":
+		// Directorio del canal reenviado por el host: registrar sin pisar
+		// la presencia de un peer directo
+		if code == a.myCode {
+			break
+		}
+		a.mu.Lock()
+		_, directo := a.peers[code]
+		if pkt.Online || directo {
+			a.onlineSet[code] = true
+		}
+		a.mu.Unlock()
+		a.upsertMiembro(code, pkt.Sender, pkt.Avatar)
+		avatar := ""
+		if pkt.Avatar != "" {
+			avatar = "data:image/webp;base64," + pkt.Avatar
+		}
+		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: pkt.Sender, Online: pkt.Online || directo, Avatar: avatar})
 
 	case "bye":
 		a.mu.Lock()
-		delete(a.peerInfo, code)
+		delete(a.onlineSet, code)
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: "", Online: false})
+
+	case "channel":
+		// El host comparte la identidad del canal
+		var info ChannelInfo
+		if err := json.Unmarshal([]byte(pkt.Channel), &info); err == nil && info.Nombre != "" {
+			if raw, err := json.Marshal(info); err == nil {
+				a.saveSetting("canal_info", string(raw))
+			}
+			runtime.WindowSetTitle(a.ctx, info.Nombre)
+			runtime.EventsEmit(a.ctx, "channel_info", info)
+		}
 
 	case "image":
 		dataURL := "data:image/webp;base64," + pkt.Image
@@ -400,14 +449,11 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 		}
 
 	default: // "text"
-		if pkt.Code != "" {
+		if pkt.Code != "" && pkt.Code != a.myCode {
 			a.mu.Lock()
-			info := a.peerInfo[code]
-			if info.Name == "" {
-				info.Name = pkt.Sender
-				a.peerInfo[code] = info
-			}
+			a.onlineSet[pkt.Code] = true
 			a.mu.Unlock()
+			a.upsertMiembro(pkt.Code, pkt.Sender, "")
 		}
 		chatMsg := Message{
 			Sender: pkt.Sender,
@@ -542,10 +588,11 @@ func (a *App) removePeer(id string) {
 		delete(a.peers, id)
 	}
 	remaining = len(a.peers)
-	delete(a.peerInfo, id)
+	delete(a.onlineSet, id)
 	if remaining == 0 {
-		// Sin peers directos ya no llegamos a nadie: limpiar la agenda
-		a.peerInfo = make(map[string]PeerInfo)
+		// Sin peers directos ya no llegamos a nadie: nadie está activo.
+		// El directorio (nombres y avatares) se conserva en SQLite.
+		a.onlineSet = make(map[string]bool)
 	}
 	a.mu.Unlock()
 
@@ -588,6 +635,10 @@ func (a *App) ConnectToPeer(input string) string {
 	if target == myCode {
 		return "No puedes conectarte a tu propio código."
 	}
+
+	a.mu.Lock()
+	a.isHost = false
+	a.mu.Unlock()
 
 	pc, err := newPeerConnection()
 	if err != nil {

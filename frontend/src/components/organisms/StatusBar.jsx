@@ -15,7 +15,15 @@ export function StatusBar({ status, peers, server }) {
   const view = STATUS_VIEW[status] ?? STATUS_VIEW[STATUS.IDLE];
   const canStart = status === STATUS.IDLE && server;
 
-  const startAndClose = () => {
+  // Identidad del canal (editables antes de iniciar el servidor)
+  const [nombre, setNombre] = useState(server?.channel?.nombre ?? '');
+  const [subtitulo, setSubtitulo] = useState(server?.channel?.subtitulo ?? '');
+  const [icono, setIcono] = useState(server?.channel?.icono ?? '');
+
+  const startAndClose = async () => {
+    if (server.onSaveChannel && (nombre.trim() || icono.trim())) {
+      await server.onSaveChannel(nombre, subtitulo, icono);
+    }
     server.onStart();
     setPortOpen(false);
   };
@@ -28,7 +36,7 @@ export function StatusBar({ status, peers, server }) {
 
       {canStart && (
         <div className="status-bar__server">
-          <Button variant="success" size="sm" onClick={server.onStart}>
+          <Button variant="success" size="sm" onClick={startAndClose}>
             ▶ Iniciar Servidor
           </Button>
           <div className="status-bar__port">
@@ -36,25 +44,58 @@ export function StatusBar({ status, peers, server }) {
               variant="ghost"
               size="sm"
               onClick={() => setPortOpen((o) => !o)}
-              title={`Cambiar puerto (actual: ${server.port})`}
+              title={`Configurar servidor (puerto: ${server.port})`}
             >
               ⚙️
             </Button>
             {portOpen && (
-              <div className="port-popover">
-                <label className="port-popover__label" htmlFor="port-input">
-                  Puerto
-                </label>
-                <Input
-                  id="port-input"
-                  value={server.port}
-                  onChange={(e) => server.onPortChange(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && startAndClose()}
-                  placeholder="8080"
-                />
-                <Button variant="success" size="sm" onClick={startAndClose}>
-                  Iniciar
-                </Button>
+              <div className="port-popover port-popover--wide">
+                <div className="port-popover__row">
+                  <label className="port-popover__label" htmlFor="channel-icon">
+                    Ícono
+                  </label>
+                  <Input
+                    id="channel-icon"
+                    className="port-popover__icon"
+                    value={icono}
+                    onChange={(e) => setIcono(e.target.value)}
+                    placeholder="🐙"
+                    maxLength={4}
+                  />
+                  <label className="port-popover__label" htmlFor="port-input">
+                    Puerto
+                  </label>
+                  <Input
+                    id="port-input"
+                    className="port-popover__port"
+                    value={server.port}
+                    onChange={(e) => server.onPortChange(e.target.value)}
+                    placeholder="8080"
+                  />
+                </div>
+                <div className="port-popover__row">
+                  <Input
+                    id="channel-name"
+                    value={nombre}
+                    onChange={(e) => setNombre(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && startAndClose()}
+                    placeholder="Nombre del canal (ej: Lab de Redes)"
+                  />
+                </div>
+                <div className="port-popover__row">
+                  <Input
+                    id="channel-subtitle"
+                    value={subtitulo}
+                    onChange={(e) => setSubtitulo(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && startAndClose()}
+                    placeholder="Subtítulo (ej: chat del curso)"
+                  />
+                </div>
+                <div className="port-popover__row port-popover__row--actions">
+                  <Button variant="success" size="sm" onClick={startAndClose}>
+                    ▶ Iniciar con esta identidad
+                  </Button>
+                </div>
               </div>
             )}
           </div>

@@ -14,6 +14,22 @@ export namespace main {
 	        this.playbackGain = source["playbackGain"];
 	    }
 	}
+	export class ChannelInfo {
+	    nombre: string;
+	    subtitulo: string;
+	    icono: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nombre = source["nombre"];
+	        this.subtitulo = source["subtitulo"];
+	        this.icono = source["icono"];
+	    }
+	}
 	export class Message {
 	    sender: string;
 	    text: string;

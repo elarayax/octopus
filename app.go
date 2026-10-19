@@ -23,20 +23,23 @@ type Message struct {
 }
 
 type Packet struct {
-	Type    string `json:"type"` // "text", "audio", "hello", "avatar", "bye", "image", "history_req", "history"
+	Type    string `json:"type"` // "text", "audio", "hello", "avatar", "bye", "image", "history_req", "history", "roster", "channel"
 	Sender  string `json:"sender"`
 	Text    string `json:"text,omitempty"`
-	Audio   string `json:"audio,omitempty"`  // base64 encoded PCM chunk
-	Code    string `json:"code,omitempty"`   // código fijo del equipo emisor
-	Avatar  string `json:"avatar,omitempty"` // base64 del WebP (estático o animado)
-	Image   string `json:"image,omitempty"`  // base64 del WebP de chat
+	Audio   string `json:"audio,omitempty"`   // base64 encoded PCM chunk
+	Code    string `json:"code,omitempty"`    // código fijo del equipo emisor
+	Avatar  string `json:"avatar,omitempty"`  // base64 del WebP (estático o animado)
+	Image   string `json:"image,omitempty"`   // base64 del WebP de chat
 	History string `json:"history,omitempty"` // JSON con mensajes para sincronizar
+	Online  bool   `json:"online,omitempty"`  // roster: si el miembro está activo
+	Channel string `json:"channel,omitempty"` // JSON con ChannelInfo (solo el host)
 }
 
-// PeerInfo guarda lo que sabemos de cada peer (por su código fijo)
-type PeerInfo struct {
-	Name   string
-	Avatar string // data URL lista para <img>
+// ChannelInfo es la identidad del canal que muestra el header
+type ChannelInfo struct {
+	Nombre    string `json:"nombre"`
+	Subtitulo string `json:"subtitulo"`
+	Icono     string `json:"icono"`
 }
 
 // UserEntry es una fila de la lista de usuarios para la UI
@@ -53,22 +56,23 @@ type NodeInfo struct {
 }
 
 type App struct {
-	ctx      context.Context
-	username string
-	myCode   string
-	myPort   string
-	peers    map[string]*PeerSession
-	peerInfo map[string]PeerInfo
-	stopPoll chan struct{}
-	db       *sql.DB
-	mu       sync.Mutex
+	ctx       context.Context
+	username  string
+	myCode    string
+	myPort    string
+	isHost    bool
+	peers     map[string]*PeerSession
+	onlineSet map[string]bool // presencia por código (directorio vive en SQLite)
+	stopPoll  chan struct{}
+	db        *sql.DB
+	mu        sync.Mutex
 }
 
 func NewApp() *App {
 	return &App{
-		username: "Anónimo",
-		peers:    make(map[string]*PeerSession),
-		peerInfo: make(map[string]PeerInfo),
+		username:  "Anónimo",
+		peers:     make(map[string]*PeerSession),
+		onlineSet: make(map[string]bool),
 	}
 }
 
@@ -82,6 +86,10 @@ func (a *App) startup(ctx context.Context) {
 	if saved := a.getSetting("username"); strings.TrimSpace(saved) != "" {
 		a.username = saved
 		fmt.Println("Nombre de usuario restaurado:", a.username)
+	}
+	// Restaurar la identidad del canal (título de la ventana)
+	if info := a.GetChannelInfo(); info.Nombre != "" {
+		runtime.WindowSetTitle(a.ctx, info.Nombre)
 	}
 }
 
@@ -165,39 +173,45 @@ func (a *App) GetNodeInfo() NodeInfo {
 	}
 }
 
-// GetUsers devuelve la lista de usuarios: tú primero, luego los usuarios
-// activos (peers directos o alcanzados vía relay) y al final los conocidos
-// de SQLite que no están activos (inactivos)
+// GetUsers devuelve la lista de usuarios: tú primero, luego los miembros del
+// canal (directorio persistente en SQLite): activos primero, inactivos después
 func (a *App) GetUsers() []UserEntry {
 	a.mu.Lock()
 	own := a.username
 	ownCode := a.myCode
-	infos := make(map[string]PeerInfo, len(a.peerInfo))
-	for k, v := range a.peerInfo {
-		infos[k] = v
+	online := make(map[string]bool, len(a.onlineSet))
+	for k, v := range a.onlineSet {
+		online[k] = v
 	}
 	a.mu.Unlock()
 
 	users := []UserEntry{{Name: own, Online: true, Avatar: a.avatarDataURL(), Self: true}}
-	seen := map[string]bool{own: true}
 
-	// Activos: peerInfo se mantiene limpio (bye / desconexión), así que
-	// cualquiera presente aquí está alcanzable, directo o vía relay
-	for code, info := range infos {
-		if code == ownCode {
+	var activos, inactivos []UserEntry
+	for _, m := range a.getMiembros() {
+		if m.Codigo == ownCode || m.Nombre == own {
 			continue
 		}
-		name := info.Name
-		if name == "" {
-			name = "Peer " + code
+		avatar := ""
+		if m.Avatar != "" {
+			avatar = "data:image/webp;base64," + m.Avatar
 		}
-		if seen[name] {
-			continue
+		entry := UserEntry{Name: m.Nombre, Online: online[m.Codigo], Avatar: avatar}
+		if entry.Online {
+			activos = append(activos, entry)
+		} else {
+			inactivos = append(inactivos, entry)
 		}
-		seen[name] = true
-		users = append(users, UserEntry{Name: name, Online: true, Avatar: info.Avatar})
 	}
 
+	// Conocidos de mensajes antiguos que no están en el directorio
+	seen := map[string]bool{own: true}
+	for _, u := range activos {
+		seen[u.Name] = true
+	}
+	for _, u := range inactivos {
+		seen[u.Name] = true
+	}
 	if a.db != nil {
 		rows, err := a.db.Query(`SELECT nombre FROM usuario`)
 		if err == nil {
@@ -206,11 +220,47 @@ func (a *App) GetUsers() []UserEntry {
 				var n string
 				if rows.Scan(&n) == nil && n != "" && !seen[n] {
 					seen[n] = true
-					users = append(users, UserEntry{Name: n, Online: false})
+					inactivos = append(inactivos, UserEntry{Name: n, Online: false})
 				}
 			}
 		}
 	}
 
-	return users
+	return append(users, append(activos, inactivos...)...)
+}
+
+// GetChannelInfo devuelve la identidad del canal (persistida en SQLite)
+func (a *App) GetChannelInfo() ChannelInfo {
+	info := ChannelInfo{Nombre: "Chat P2P", Subtitulo: "Texto & Voz en Vivo", Icono: "🐙"}
+	if raw := a.getSetting("canal_info"); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &info)
+	}
+	return info
+}
+
+// SetChannelInfo guarda la identidad del canal, la aplica al título y la
+// comparte con los peers (si somos host)
+func (a *App) SetChannelInfo(nombre, subtitulo, icono string) ChannelInfo {
+	info := a.GetChannelInfo()
+	if v := strings.TrimSpace(nombre); v != "" {
+		info.Nombre = v
+	}
+	if subtitulo != "" || nombre != "" {
+		info.Subtitulo = strings.TrimSpace(subtitulo)
+	}
+	if v := strings.TrimSpace(icono); v != "" {
+		info.Icono = v
+	}
+	if raw, err := json.Marshal(info); err == nil {
+		a.saveSetting("canal_info", string(raw))
+	}
+	a.mu.Lock()
+	isHost := a.isHost
+	a.mu.Unlock()
+	runtime.WindowSetTitle(a.ctx, info.Nombre)
+	runtime.EventsEmit(a.ctx, "channel_info", info)
+	if isHost {
+		a.broadcastChannelInfo(info)
+	}
+	return info
 }

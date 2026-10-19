@@ -1,9 +1,15 @@
 import { Button } from '../atoms';
 
-export function AppHeader({ onRefreshMods, onOpenMods, onOpenSettings }) {
+export function AppHeader({ onRefreshMods, onOpenMods, onOpenSettings, channel }) {
   return (
     <header className="app-header">
-      <h2 className="app-header__title">Octopus</h2>
+      <div className="app-header__identity">
+        <span className="app-header__icon" aria-hidden="true">{channel?.icono || '🐙'}</span>
+        <div className="app-header__text">
+          <h2 className="app-header__title">{channel?.nombre || 'Chat P2P'}</h2>
+          {channel?.subtitulo && <p className="app-header__subtitle">{channel.subtitulo}</p>}
+        </div>
+      </div>
       <div className="app-header__actions">
         <Button variant="secondary" onClick={onOpenSettings} title="Configuración de usuario">
           ⚙️ Perfil

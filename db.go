@@ -66,6 +66,61 @@ func (a *App) getSetting(clave string) string {
 	return valor
 }
 
+// Miembro es una entrada del directorio persistente del canal
+type Miembro struct {
+	Codigo string `json:"codigo"`
+	Nombre string `json:"nombre"`
+	Avatar string `json:"avatar"` // base64 del WebP, puede ser ""
+}
+
+// upsertMiembro registra/actualiza un miembro del canal (avatar solo si viene)
+func (a *App) upsertMiembro(codigo, nombre, avatarB64 string) {
+	if a.db == nil || codigo == "" || nombre == "" {
+		return
+	}
+	if avatarB64 != "" {
+		_, _ = a.db.Exec(`
+			INSERT INTO miembro (codigo, nombre, avatar) VALUES (?, ?, ?)
+			ON CONFLICT(codigo) DO UPDATE SET
+				nombre = excluded.nombre,
+				avatar = excluded.avatar,
+				ultima_vez = CURRENT_TIMESTAMP
+		`, codigo, nombre, avatarB64)
+	} else {
+		_, _ = a.db.Exec(`
+			INSERT INTO miembro (codigo, nombre) VALUES (?, ?)
+			ON CONFLICT(codigo) DO UPDATE SET
+				nombre = excluded.nombre,
+				ultima_vez = CURRENT_TIMESTAMP
+		`, codigo, nombre)
+	}
+}
+
+// getMiembros devuelve el directorio completo, más recientemente vistos primero
+func (a *App) getMiembros() []Miembro {
+	if a.db == nil {
+		return nil
+	}
+	rows, err := a.db.Query(`
+		SELECT codigo, nombre, COALESCE(avatar, '')
+		FROM miembro
+		ORDER BY ultima_vez DESC
+	`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var miembros []Miembro
+	for rows.Next() {
+		var m Miembro
+		if rows.Scan(&m.Codigo, &m.Nombre, &m.Avatar) == nil {
+			miembros = append(miembros, m)
+		}
+	}
+	return miembros
+}
+
 func (a *App) saveMessage(sender, text string) {
 	a.saveMessageKind(sender, text, "text", "")
 }
@@ -112,7 +167,7 @@ func (a *App) GetChatHistory() []Message {
 	rows, err := a.db.Query(`
 		SELECT id_usuario, contenido, tipo, strftime('%Y-%m-%d %H:%M:%S', creado_en)
 		FROM mensaje
-		ORDER BY id ASC
+		ORDER BY creado_en ASC, id ASC
 	`)
 	if err != nil {
 		return []Message{}

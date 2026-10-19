@@ -50,6 +50,10 @@ export function SendAudio(arg1) {
   return window['go']['main']['App']['SendAudio'](arg1);
 }
 
+export function SendImageFromDialog() {
+  return window['go']['main']['App']['SendImageFromDialog']();
+}
+
 export function SendMessage(arg1) {
   return window['go']['main']['App']['SendMessage'](arg1);
 }

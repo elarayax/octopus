@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { Button } from '../atoms';
 import { InputWithButton } from '../molecules';
 
-export function ChatInput({ onSend }) {
+export function ChatInput({ onSend, onSendImage }) {
   const [text, setText] = useState('');
 
   const submit = async () => {
@@ -13,6 +14,14 @@ export function ChatInput({ onSend }) {
 
   return (
     <div className="chat-input">
+      <Button
+        variant="secondary"
+        className="chat-input__attach"
+        onClick={onSendImage}
+        title="Enviar imagen (PNG, JPG, GIF, WebP)"
+      >
+        📎
+      </Button>
       <InputWithButton
         value={text}
         onChange={setText}

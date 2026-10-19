@@ -75,7 +75,7 @@ export default function ChatPage() {
         chat={
           <>
             <ChatHistory messages={chat.messages} avatars={users.avatarByName} />
-            <ChatInput onSend={chat.send} />
+            <ChatInput onSend={chat.send} onSendImage={chat.sendImage} />
           </>
         }
       />

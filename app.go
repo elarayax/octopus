@@ -17,15 +17,20 @@ const VERCEL_URL = "https://server-chat-vercel.vercel.app/api"
 type Message struct {
 	Sender string `json:"sender"`
 	Text   string `json:"text"`
+	Kind   string `json:"kind"`           // "text" o "image"
+	Image  string `json:"image,omitempty"` // data URL (solo kind=image)
+	Time   string `json:"time,omitempty"`
 }
 
 type Packet struct {
-	Type   string `json:"type"` // "text", "audio", "hello" o "avatar"
-	Sender string `json:"sender"`
-	Text   string `json:"text,omitempty"`
-	Audio  string `json:"audio,omitempty"`  // base64 encoded PCM chunk
-	Code   string `json:"code,omitempty"`   // código fijo del equipo emisor
-	Avatar string `json:"avatar,omitempty"` // base64 del WebP (estático o animado)
+	Type    string `json:"type"` // "text", "audio", "hello", "avatar", "bye", "image", "history_req", "history"
+	Sender  string `json:"sender"`
+	Text    string `json:"text,omitempty"`
+	Audio   string `json:"audio,omitempty"`  // base64 encoded PCM chunk
+	Code    string `json:"code,omitempty"`   // código fijo del equipo emisor
+	Avatar  string `json:"avatar,omitempty"` // base64 del WebP (estático o animado)
+	Image   string `json:"image,omitempty"`  // base64 del WebP de chat
+	History string `json:"history,omitempty"` // JSON con mensajes para sincronizar
 }
 
 // PeerInfo guarda lo que sabemos de cada peer (por su código fijo)

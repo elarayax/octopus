@@ -17,6 +17,9 @@ export namespace main {
 	export class Message {
 	    sender: string;
 	    text: string;
+	    kind: string;
+	    image?: string;
+	    time?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
@@ -26,6 +29,9 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sender = source["sender"];
 	        this.text = source["text"];
+	        this.kind = source["kind"];
+	        this.image = source["image"];
+	        this.time = source["time"];
 	    }
 	}
 	export class ModLayout {

@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -35,6 +36,10 @@ func (a *App) initDB() error {
 		return err
 	}
 
+	// Migración: instalaciones antiguas no tienen la columna tipo
+	// (ignora el error "duplicate column name" si ya existe)
+	_, _ = db.Exec(`ALTER TABLE mensaje ADD COLUMN tipo VARCHAR(10) NOT NULL DEFAULT 'text'`)
+
 	a.db = db
 	return nil
 }
@@ -62,13 +67,41 @@ func (a *App) getSetting(clave string) string {
 }
 
 func (a *App) saveMessage(sender, text string) {
+	a.saveMessageKind(sender, text, "text", "")
+}
+
+// saveMessageKind guarda un mensaje; si creadoEn viene con valor (sync de
+// historial) conserva la fecha original
+func (a *App) saveMessageKind(sender, contenido, kind, creadoEn string) {
 	if a.db == nil {
 		return
 	}
 
 	_, _ = a.db.Exec(`INSERT OR IGNORE INTO usuario (id, nombre) VALUES (?, ?)`, sender, sender)
-	query := `INSERT INTO mensaje (contenido, id_canal, id_usuario) VALUES (?, 1, ?)`
-	_, _ = a.db.Exec(query, text, sender)
+	if creadoEn != "" {
+		_, _ = a.db.Exec(
+			`INSERT INTO mensaje (contenido, tipo, id_canal, id_usuario, creado_en) VALUES (?, ?, 1, ?, ?)`,
+			contenido, kind, sender, creadoEn,
+		)
+	} else {
+		_, _ = a.db.Exec(
+			`INSERT INTO mensaje (contenido, tipo, id_canal, id_usuario) VALUES (?, ?, 1, ?)`,
+			contenido, kind, sender,
+		)
+	}
+}
+
+// messageExists: dedupe para la fusión de historiales
+func (a *App) messageExists(sender, contenido, creadoEn string) bool {
+	if a.db == nil {
+		return false
+	}
+	var n int
+	_ = a.db.QueryRow(
+		`SELECT COUNT(*) FROM mensaje WHERE id_usuario = ? AND contenido = ? AND strftime('%Y-%m-%d %H:%M:%S', creado_en) = ?`,
+		sender, contenido, creadoEn,
+	).Scan(&n)
+	return n > 0
 }
 
 func (a *App) GetChatHistory() []Message {
@@ -77,7 +110,7 @@ func (a *App) GetChatHistory() []Message {
 	}
 
 	rows, err := a.db.Query(`
-		SELECT id_usuario, contenido
+		SELECT id_usuario, contenido, tipo, strftime('%Y-%m-%d %H:%M:%S', creado_en)
 		FROM mensaje
 		ORDER BY id ASC
 	`)
@@ -89,10 +122,106 @@ func (a *App) GetChatHistory() []Message {
 	var history []Message
 	for rows.Next() {
 		var msg Message
-		if err := rows.Scan(&msg.Sender, &msg.Text); err == nil {
+		var contenido string
+		if err := rows.Scan(&msg.Sender, &contenido, &msg.Kind, &msg.Time); err == nil {
+			if msg.Kind == "image" {
+				msg.Image = "data:image/webp;base64," + contenido
+			} else {
+				msg.Text = contenido
+			}
 			history = append(history, msg)
 		}
 	}
 
 	return history
+}
+
+// historyBudget limita el tamaño del historial compartido (~1.5 MB de JSON,
+// bajo el tope SCTP de 4 MB negociado)
+const historyBudget = 1500 * 1024
+
+// exportHistory devuelve los mensajes más recientes que caben en el presupuesto,
+// en formato JSON listo para enviar en un Packet
+func (a *App) exportHistory() string {
+	if a.db == nil {
+		return "[]"
+	}
+
+	rows, err := a.db.Query(`
+		SELECT id_usuario, contenido, tipo, strftime('%Y-%m-%d %H:%M:%S', creado_en)
+		FROM mensaje
+		ORDER BY id DESC
+		LIMIT 500
+	`)
+	if err != nil {
+		return "[]"
+	}
+	defer rows.Close()
+
+	type syncMsg struct {
+		Sender string `json:"sender"`
+		Body   string `json:"body"`
+		Kind   string `json:"kind"`
+		Time   string `json:"time"`
+	}
+
+	var msgs []syncMsg
+	size := 2 // corchetes del array
+	for rows.Next() {
+		var m syncMsg
+		if err := rows.Scan(&m.Sender, &m.Body, &m.Kind, &m.Time); err != nil {
+			continue
+		}
+		entry := len(m.Sender) + len(m.Body) + len(m.Kind) + len(m.Time) + 60
+		if size+entry > historyBudget && len(msgs) > 0 {
+			break
+		}
+		size += entry
+		msgs = append(msgs, m)
+	}
+
+	// Invertir: quedaron DESC y los queremos cronológicos
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+
+	raw, err := json.Marshal(msgs)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
+}
+
+// mergeHistory inserta los mensajes recibidos que no existan localmente.
+// Devuelve cuántos mensajes nuevos se incorporaron.
+func (a *App) mergeHistory(historyJSON string) int {
+	if a.db == nil || historyJSON == "" {
+		return 0
+	}
+
+	var msgs []struct {
+		Sender string `json:"sender"`
+		Body   string `json:"body"`
+		Kind   string `json:"kind"`
+		Time   string `json:"time"`
+	}
+	if err := json.Unmarshal([]byte(historyJSON), &msgs); err != nil {
+		return 0
+	}
+
+	added := 0
+	for _, m := range msgs {
+		if m.Sender == "" || m.Time == "" {
+			continue
+		}
+		if m.Kind != "image" {
+			m.Kind = "text"
+		}
+		if a.messageExists(m.Sender, m.Body, m.Time) {
+			continue
+		}
+		a.saveMessageKind(m.Sender, m.Body, m.Kind, m.Time)
+		added++
+	}
+	return added
 }

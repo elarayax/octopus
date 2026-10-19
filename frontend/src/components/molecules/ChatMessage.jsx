@@ -4,7 +4,7 @@ function hueFrom(name = '') {
   return h;
 }
 
-export function ChatMessage({ sender, text, avatar }) {
+export function ChatMessage({ sender, text, avatar, image }) {
   const name = sender || '?';
   return (
     <div className="chat-message" style={{ '--hue': hueFrom(name) }}>
@@ -17,7 +17,11 @@ export function ChatMessage({ sender, text, avatar }) {
       )}
       <div className="chat-message__body">
         <strong className="chat-message__sender">{name}</strong>
-        <div className="chat-message__text">{text}</div>
+        {image ? (
+          <img className="chat-message__image" src={image} alt={`Imagen enviada por ${name}`} />
+        ) : (
+          <div className="chat-message__text">{text}</div>
+        )}
       </div>
     </div>
   );

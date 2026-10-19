@@ -109,6 +109,15 @@ func getOrCreateFixedCode() string {
 	return persistCode(codePath, codeFromKey(key))
 }
 
+// newPeerConnection crea la conexión con el tope de mensaje SCTP ampliado
+// (64 KB por defecto -> 4 MB) para que quepan imágenes y el historial
+func newPeerConnection() (*webrtc.PeerConnection, error) {
+	s := webrtc.SettingEngine{}
+	s.SetSCTPMaxMessageSize(4 * 1024 * 1024)
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(s))
+	return api.NewPeerConnection(getRTCConfig())
+}
+
 func getRTCConfig() webrtc.Configuration {
 	return webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -202,6 +211,10 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 			// Presentarle también los demás usuarios conocidos (topología
 			// estrella: los clientes no se hablan directo entre ellos)
 			a.sendKnownPeersTo(dc)
+			// Sincronizar historiales: ambos lados piden y responden
+			if raw, err := json.Marshal(Packet{Type: "history_req", Code: a.myCode}); err == nil {
+				_ = dc.SendText(string(raw))
+			}
 		}
 	})
 
@@ -356,6 +369,36 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 		a.mu.Unlock()
 		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: "", Online: false})
 
+	case "image":
+		dataURL := "data:image/webp;base64," + pkt.Image
+		a.saveMessageKind(pkt.Sender, pkt.Image, "image", "")
+		runtime.EventsEmit(a.ctx, "receive_message", Message{
+			Sender: pkt.Sender,
+			Kind:   "image",
+			Image:  dataURL,
+		})
+
+	case "history_req":
+		// Responder con nuestro historial por el mismo canal
+		a.mu.Lock()
+		var dc *webrtc.DataChannel
+		if s, ok := a.peers[remoteID]; ok {
+			dc = s.dc
+		}
+		a.mu.Unlock()
+		if dc != nil && dc.ReadyState() == webrtc.DataChannelStateOpen {
+			raw, err := json.Marshal(Packet{Type: "history", History: a.exportHistory()})
+			if err == nil {
+				_ = dc.SendText(string(raw))
+			}
+		}
+
+	case "history":
+		if added := a.mergeHistory(pkt.History); added > 0 {
+			fmt.Printf("Historial sincronizado: %d mensajes nuevos\n", added)
+			runtime.EventsEmit(a.ctx, "history_synced", added)
+		}
+
 	default: // "text"
 		if pkt.Code != "" {
 			a.mu.Lock()
@@ -385,7 +428,7 @@ func (a *App) handleIncomingOffer(fromPeerID, offerB64 string) {
 		return
 	}
 
-	pc, err := webrtc.NewPeerConnection(getRTCConfig())
+	pc, err := newPeerConnection()
 	if err != nil {
 		return
 	}
@@ -546,7 +589,7 @@ func (a *App) ConnectToPeer(input string) string {
 		return "No puedes conectarte a tu propio código."
 	}
 
-	pc, err := webrtc.NewPeerConnection(getRTCConfig())
+	pc, err := newPeerConnection()
 	if err != nil {
 		return fmt.Sprintf("Error creando WebRTC: %s", err.Error())
 	}

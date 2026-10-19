@@ -17,7 +17,13 @@ export function ChatHistory({ messages, avatars = {} }) {
         </div>
       ) : (
         messages.map((m, i) => (
-          <ChatMessage key={m.id ?? i} sender={m.sender} text={m.text} avatar={avatars[m.sender]} />
+          <ChatMessage
+            key={m.id ?? i}
+            sender={m.sender}
+            text={m.text}
+            avatar={avatars[m.sender]}
+            image={m.image}
+          />
         ))
       )}
       <div ref={endRef} />

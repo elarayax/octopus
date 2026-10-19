@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	avatarMaxDim   = 128             // px, lado máximo del avatar
-	avatarMaxBytes = 300 * 1024      // tope del archivo optimizado (~300 KB)
-	avatarFileName = "avatar.webp"   // estático o animado, siempre WebP
+	avatarMaxDim      = 128        // px, lado máximo del avatar
+	avatarMaxBytes    = 300 * 1024 // tope del avatar (~300 KB)
+	chatImageMaxDim   = 800        // px, lado máximo de imágenes de chat
+	chatImageMaxBytes = 400 * 1024 // tope de imágenes de chat (~400 KB)
+	avatarFileName    = "avatar.webp"
 )
 
 // avatarPath devuelve la ruta del avatar del usuario (~/.chat_p2p/avatar.webp)
@@ -59,9 +61,9 @@ func resizeToMax(src image.Image, maxDim int) *image.NRGBA {
 	return dst
 }
 
-// processStaticAvatar: redimensiona y codifica como WebP
-func processStaticAvatar(img image.Image) ([]byte, error) {
-	resized := resizeToMax(img, avatarMaxDim)
+// processStaticImage: redimensiona y codifica como WebP
+func processStaticImage(img image.Image, maxDim int) ([]byte, error) {
+	resized := resizeToMax(img, maxDim)
 	var buf bytes.Buffer
 	if err := webp.Encode(&buf, resized, &webp.Options{CompressionLevel: webp.DefaultCompression}); err != nil {
 		return nil, err
@@ -101,7 +103,7 @@ func gifToFrames(g *gif.GIF) ([]image.Image, []uint) {
 
 // encodeAnimatedWebP intenta codificar cumpliendo el tope de tamaño,
 // degradando progresivamente: menos frames -> 96px -> 64px
-func encodeAnimatedWebP(frames []image.Image, durations []uint, loopCount uint16, maxDim int) ([]byte, error) {
+func encodeAnimatedWebP(frames []image.Image, durations []uint, loopCount uint16, maxDim, maxBytes int) ([]byte, error) {
 	encode := func(fr []image.Image, du []uint) ([]byte, error) {
 		resized := make([]image.Image, len(fr))
 		for i, f := range fr {
@@ -121,7 +123,7 @@ func encodeAnimatedWebP(frames []image.Image, durations []uint, loopCount uint16
 	if err != nil {
 		return nil, err
 	}
-	if len(out) <= avatarMaxBytes {
+	if len(out) <= maxBytes {
 		return out, nil
 	}
 
@@ -140,7 +142,7 @@ func encodeAnimatedWebP(frames []image.Image, durations []uint, loopCount uint16
 		if out, err = encode(fr, du); err != nil {
 			return nil, err
 		}
-		if len(out) <= avatarMaxBytes {
+		if len(out) <= maxBytes {
 			return out, nil
 		}
 		frames, durations = fr, du
@@ -148,20 +150,21 @@ func encodeAnimatedWebP(frames []image.Image, durations []uint, loopCount uint16
 
 	// Último recurso: achicar el lienzo
 	if maxDim > 64 {
-		return encodeAnimatedWebP(frames, durations, loopCount, 64)
+		return encodeAnimatedWebP(frames, durations, loopCount, 64, maxBytes)
 	}
 	return out, nil
 }
 
-// processAvatar detecta el formato y produce un WebP (estático o animado) optimizado
-func processAvatar(data []byte) ([]byte, error) {
+// processImage detecta el formato y produce un WebP (estático o animado)
+// optimizado dentro de los límites dados
+func processImage(data []byte, maxDim, maxBytes int) ([]byte, error) {
 	if bytes.HasPrefix(data, []byte("GIF8")) {
 		g, err := gif.DecodeAll(bytes.NewReader(data))
 		if err != nil {
 			return nil, fmt.Errorf("GIF inválido: %w", err)
 		}
 		if len(g.Image) == 1 {
-			return processStaticAvatar(g.Image[0])
+			return processStaticImage(g.Image[0], maxDim)
 		}
 		frames, durations := gifToFrames(g)
 		loop := uint16(0)
@@ -170,7 +173,7 @@ func processAvatar(data []byte) ([]byte, error) {
 		} else if g.LoopCount < 0 {
 			loop = 1
 		}
-		return encodeAnimatedWebP(frames, durations, loop, avatarMaxDim)
+		return encodeAnimatedWebP(frames, durations, loop, maxDim, maxBytes)
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(data))
@@ -182,7 +185,7 @@ func processAvatar(data []byte) ([]byte, error) {
 			return nil, fmt.Errorf("formato de imagen no soportado: %w", err)
 		}
 	}
-	return processStaticAvatar(img)
+	return processStaticImage(img, maxDim)
 }
 
 // avatarDataURL lee el avatar guardado y lo devuelve como data URL (o "" si no hay)
@@ -222,7 +225,7 @@ func (a *App) SetAvatarFromDialog() string {
 		return "Error: no se pudo leer el archivo"
 	}
 
-	optimized, err := processAvatar(data)
+	optimized, err := processImage(data, avatarMaxDim, avatarMaxBytes)
 	if err != nil {
 		return "Error: " + err.Error()
 	}

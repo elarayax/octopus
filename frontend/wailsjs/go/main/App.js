@@ -14,6 +14,10 @@ export function GetAvatar() {
   return window['go']['main']['App']['GetAvatar']();
 }
 
+export function GetCanales() {
+  return window['go']['main']['App']['GetCanales']();
+}
+
 export function GetChannelInfo() {
   return window['go']['main']['App']['GetChannelInfo']();
 }
@@ -70,6 +74,10 @@ export function SetAvatarFromDialog() {
   return window['go']['main']['App']['SetAvatarFromDialog']();
 }
 
+export function SetChannelIconFromDialog() {
+  return window['go']['main']['App']['SetChannelIconFromDialog']();
+}
+
 export function SetChannelInfo(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetChannelInfo'](arg1, arg2, arg3);
 }
@@ -80,4 +88,8 @@ export function SetUsername(arg1) {
 
 export function StartServer(arg1) {
   return window['go']['main']['App']['StartServer'](arg1);
+}
+
+export function SwitchToCanal(arg1) {
+  return window['go']['main']['App']['SwitchToCanal'](arg1);
 }

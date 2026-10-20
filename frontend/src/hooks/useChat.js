@@ -8,7 +8,7 @@ export function useChat({ notify }) {
   const reload = useCallback(() => {
     GetChatHistory()
       .then((history) => {
-        if (history && history.length > 0) setMessages(history);
+        setMessages(history || []);
       })
       .catch((err) => console.error('Error cargando historial de SQLite:', err));
   }, []);
@@ -23,9 +23,14 @@ export function useChat({ notify }) {
     const offSync = EventsOn('history_synced', () => {
       reload();
     });
+    // Al cambiar de canal: recargar mensajes del canal activo
+    const offSwitch = EventsOn('channel_switched', () => {
+      reload();
+    });
     return () => {
       offMsg();
       offSync();
+      offSwitch();
     };
   }, [reload]);
 
@@ -52,5 +57,5 @@ export function useChat({ notify }) {
     }
   }, [notify]);
 
-  return { messages, send, sendImage };
+  return { messages, send, sendImage, reload };
 }

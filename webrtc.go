@@ -143,7 +143,11 @@ func (a *App) StartServer(port string) string {
 	a.isHost = true
 	a.myCode = getOrCreateFixedCode()
 	code := a.myCode
+	a.currentChannelID = a.upsertCanal(code, "Chat P2P", "Texto & Voz en Vivo", "🐙")
 	a.mu.Unlock()
+
+	info := a.GetChannelInfo()
+	a.SetChannelInfo(info.Nombre, info.Subtitulo, info.Icono)
 
 	go a.pollMailbox(stopChan)
 
@@ -311,17 +315,18 @@ func (a *App) broadcastChannelInfo(info ChannelInfo) {
 	if err != nil {
 		return
 	}
-	pkt, err := json.Marshal(Packet{Type: "channel", Channel: string(raw)})
-	if err != nil {
-		return
-	}
-
 	a.mu.Lock()
+	myCode := a.myCode
 	sessions := make([]*PeerSession, 0, len(a.peers))
 	for _, s := range a.peers {
 		sessions = append(sessions, s)
 	}
 	a.mu.Unlock()
+
+	pkt, err := json.Marshal(Packet{Type: "channel", Code: myCode, Channel: string(raw)})
+	if err != nil {
+		return
+	}
 
 	for _, s := range sessions {
 		if s.dc != nil && s.dc.ReadyState() == webrtc.DataChannelStateOpen {
@@ -411,11 +416,13 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 		// El host comparte la identidad del canal
 		var info ChannelInfo
 		if err := json.Unmarshal([]byte(pkt.Channel), &info); err == nil && info.Nombre != "" {
-			if raw, err := json.Marshal(info); err == nil {
-				a.saveSetting("canal_info", string(raw))
-			}
+			a.mu.Lock()
+			a.currentChannelID = a.upsertCanal(code, info.Nombre, info.Subtitulo, info.Icono)
+			a.updateCanalInfo(a.currentChannelID, info.Nombre, info.Subtitulo, info.Icono)
+			a.mu.Unlock()
 			runtime.WindowSetTitle(a.ctx, info.Nombre)
 			runtime.EventsEmit(a.ctx, "channel_info", info)
+			runtime.EventsEmit(a.ctx, "channel_switched", code)
 		}
 
 	case "image":
@@ -638,6 +645,7 @@ func (a *App) ConnectToPeer(input string) string {
 
 	a.mu.Lock()
 	a.isHost = false
+	a.currentChannelID = a.upsertCanal(target, "Chat P2P", "Texto & Voz en Vivo", "🐙")
 	a.mu.Unlock()
 
 	pc, err := newPeerConnection()

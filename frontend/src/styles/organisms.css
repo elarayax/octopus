@@ -23,6 +23,14 @@
   line-height: 1;
   flex: none;
 }
+.app-header__icon-img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  flex: none;
+}
 .app-header__text { min-width: 0; }
 .app-header__subtitle {
   margin: 1px 0 0;
@@ -358,3 +366,91 @@
 .port-popover__row .port-popover__icon { flex: none; width: 48px; text-align: center; }
 .port-popover__row .port-popover__port { flex: none; width: 70px; }
 .port-popover__row--actions { justify-content: flex-end; }
+.port-popover__icon-preview {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+/* ---------- ChannelsPanel ---------- */
+.channels-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 184px;
+  overflow-y: auto;
+}
+.channels-panel__empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.channel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 6px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  transition: background-color .15s, border-color .15s;
+}
+.channel-row:hover { background-color: var(--color-bg-hover); }
+.channel-row--current { border-color: var(--color-accent); background-color: rgba(var(--color-accent-rgb, 59 130 246) / .08); }
+.channel-row__main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.channel-row__emoji {
+  font-size: 1.3rem;
+  width: 28px;
+  text-align: center;
+  flex: none;
+}
+.channel-row__img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  flex: none;
+}
+.channel-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.channel-row__name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.channel-row__sub,
+.channel-row__code {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.channel-row__connect {
+  flex: none;
+  padding: 0 8px !important;
+}

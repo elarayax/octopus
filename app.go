@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -17,7 +19,7 @@ const VERCEL_URL = "https://server-chat-vercel.vercel.app/api"
 type Message struct {
 	Sender string `json:"sender"`
 	Text   string `json:"text"`
-	Kind   string `json:"kind"`           // "text" o "image"
+	Kind   string `json:"kind"`            // "text" o "image"
 	Image  string `json:"image,omitempty"` // data URL (solo kind=image)
 	Time   string `json:"time,omitempty"`
 }
@@ -56,16 +58,17 @@ type NodeInfo struct {
 }
 
 type App struct {
-	ctx       context.Context
-	username  string
-	myCode    string
-	myPort    string
-	isHost    bool
-	peers     map[string]*PeerSession
-	onlineSet map[string]bool // presencia por código (directorio vive en SQLite)
-	stopPoll  chan struct{}
-	db        *sql.DB
-	mu        sync.Mutex
+	ctx              context.Context
+	username         string
+	myCode           string
+	myPort           string
+	isHost           bool
+	peers            map[string]*PeerSession
+	onlineSet        map[string]bool // presencia por código (directorio vive en SQLite)
+	currentChannelID int             // canal activo (mensajes e identidad visibles)
+	stopPoll         chan struct{}
+	db               *sql.DB
+	mu               sync.Mutex
 }
 
 func NewApp() *App {
@@ -164,6 +167,26 @@ func (a *App) GetMyCode() string {
 	return a.myCode
 }
 
+// SwitchToCanal cambia al canal indicado (por su código) sin crear una nueva
+// conexión. Si el canal no existe, lo crea vacío con valores por defecto.
+func (a *App) SwitchToCanal(codigo string) string {
+	if codigo == "" {
+		return "Código vacío"
+	}
+	a.mu.Lock()
+	info, id := a.getCanalByCodigo(codigo)
+	if id == 0 || id == a.currentChannelID {
+		id = a.upsertCanal(codigo, info.Nombre, info.Subtitulo, info.Icono)
+	}
+	a.currentChannelID = id
+	a.mu.Unlock()
+
+	runtime.WindowSetTitle(a.ctx, info.Nombre)
+	runtime.EventsEmit(a.ctx, "channel_info", info)
+	runtime.EventsEmit(a.ctx, "channel_switched", codigo)
+	return "OK"
+}
+
 func (a *App) GetNodeInfo() NodeInfo {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -229,31 +252,33 @@ func (a *App) GetUsers() []UserEntry {
 	return append(users, append(activos, inactivos...)...)
 }
 
-// GetChannelInfo devuelve la identidad del canal (persistida en SQLite)
+// GetChannelInfo devuelve la identidad del canal activo (desde SQLite)
 func (a *App) GetChannelInfo() ChannelInfo {
-	info := ChannelInfo{Nombre: "Chat P2P", Subtitulo: "Texto & Voz en Vivo", Icono: "🐙"}
-	if raw := a.getSetting("canal_info"); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &info)
+	if a.db == nil || a.currentChannelID == 0 {
+		return ChannelInfo{Nombre: "Chat P2P", Subtitulo: "Texto & Voz en Vivo", Icono: "🐙"}
+	}
+	var info ChannelInfo
+	if err := a.db.QueryRow(`
+		SELECT nombre, subtitulo, icono FROM canal WHERE id = ?
+	`, a.currentChannelID).Scan(&info.Nombre, &info.Subtitulo, &info.Icono); err != nil {
+		return ChannelInfo{Nombre: "Chat P2P", Subtitulo: "Texto & Voz en Vivo", Icono: "🐙"}
 	}
 	return info
 }
 
-// SetChannelInfo guarda la identidad del canal, la aplica al título y la
-// comparte con los peers (si somos host)
+// SetChannelInfo guarda la identidad del canal activo y, si somos host,
+// la comparte con los peers
 func (a *App) SetChannelInfo(nombre, subtitulo, icono string) ChannelInfo {
 	info := a.GetChannelInfo()
 	if v := strings.TrimSpace(nombre); v != "" {
 		info.Nombre = v
 	}
-	if subtitulo != "" || nombre != "" {
-		info.Subtitulo = strings.TrimSpace(subtitulo)
-	}
+	info.Subtitulo = strings.TrimSpace(subtitulo)
 	if v := strings.TrimSpace(icono); v != "" {
 		info.Icono = v
 	}
-	if raw, err := json.Marshal(info); err == nil {
-		a.saveSetting("canal_info", string(raw))
-	}
+	a.updateCanalInfo(a.currentChannelID, info.Nombre, info.Subtitulo, info.Icono)
+
 	a.mu.Lock()
 	isHost := a.isHost
 	a.mu.Unlock()
@@ -263,4 +288,32 @@ func (a *App) SetChannelInfo(nombre, subtitulo, icono string) ChannelInfo {
 		a.broadcastChannelInfo(info)
 	}
 	return info
+}
+
+// SetChannelIconFromDialog elige una imagen, la optimiza y la usa como ícono
+// del canal activo (devuelve "Enviado", "" si cancela, o error)
+func (a *App) SetChannelIconFromDialog() string {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Elegir ícono del canal",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Imágenes (PNG, JPG, GIF, WebP)", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp"},
+		},
+	})
+	if err != nil || path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "Error: no se pudo leer el archivo"
+	}
+	// Icono pequeño: 64px, máximo 100 KB
+	optimized, err := processImage(data, 64, 100*1024)
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	b64 := base64.StdEncoding.EncodeToString(optimized)
+	info := a.GetChannelInfo()
+	info.Icono = "data:image/webp;base64," + b64
+	a.SetChannelInfo(info.Nombre, info.Subtitulo, info.Icono)
+	return info.Icono
 }

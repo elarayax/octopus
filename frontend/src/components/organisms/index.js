@@ -8,3 +8,4 @@ export { ChatHistory } from './ChatHistory';
 export { ChatInput } from './ChatInput';
 export { SettingsModal } from './SettingsModal';
 export { UsersPanel } from './UsersPanel';
+export { ChannelsPanel } from './ChannelsPanel';

@@ -17,14 +17,14 @@ CREATE TABLE IF NOT EXISTS tipo_canal (
     descripcion TEXT
 );
 
--- 4. Canales dentro de un servidor
+-- 4. Canales de chat
 CREATE TABLE IF NOT EXISTS canal (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre VARCHAR(255) NOT NULL,
-    tipo_canal INTEGER NOT NULL,
-    id_servidor INTEGER NOT NULL,
-    FOREIGN KEY (tipo_canal) REFERENCES tipo_canal(id),
-    FOREIGN KEY (id_servidor) REFERENCES servidor(id) ON DELETE CASCADE
+    codigo VARCHAR(6) NOT NULL UNIQUE,
+    nombre VARCHAR(255) NOT NULL DEFAULT 'Chat P2P',
+    subtitulo VARCHAR(255) DEFAULT 'Texto & Voz en Vivo',
+    icono TEXT DEFAULT '🐙',
+    ultima_vez DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 5. Relación Usuarios <-> Servidores

@@ -1,11 +1,13 @@
 import { useState, useCallback } from 'react';
-import { useToast, useMods, useProfile, useP2P, useChat, useVoiceCall, useUsers, useChannel } from '../hooks';
+import { useToast, useMods, useProfile, useP2P, useChat, useVoiceCall, useUsers, useChannel, useChannels } from '../hooks';
+import { SetChannelIconFromDialog } from '../../wailsjs/go/main/App';
 import { Toast } from '../components/atoms';
 import {
   AppHeader,
   StatusBar,
   VoicePanel,
   UsersPanel,
+  ChannelsPanel,
   SettingsModal,
   NodeInfoCard,
   ConnectionPanel,
@@ -23,6 +25,14 @@ export default function ChatPage() {
   const call = useVoiceCall({ notify });
   const users = useUsers();
   const { channel, save: saveChannel } = useChannel();
+  const channels = useChannels({
+    onSwitch: () => {
+      chat.reload();
+      users.refresh();
+    },
+    notify,
+    p2pStatus: p2p.status,
+  });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -71,14 +81,24 @@ export default function ChatPage() {
               onStart: p2p.startServer,
               channel,
               onSaveChannel: saveChannel,
+              onSetChannelIcon: SetChannelIconFromDialog,
             }}
           />
         }
         panels={{
+          channels: (
+            <ChannelsPanel
+              channels={channels.channels}
+              currentCode={p2p.nodeInfo?.code}
+              onSwitch={channels.switchTo}
+              onConnect={channels.connectTo}
+              status={p2p.status}
+            />
+          ),
           voice: <VoicePanel call={call} />,
           users: <UsersPanel users={users.users} />,
-          nodeInfo: p2p.nodeInfo.code && <NodeInfoCard code={p2p.nodeInfo.code} onCopy={copyId} />,
-          connection: <ConnectionPanel onConnect={p2p.connect} />,
+          connection: <ConnectionPanel connect={p2p.connect} nodeInfo={p2p.nodeInfo} />,
+          nodeInfo: <NodeInfoCard nodeInfo={p2p.nodeInfo} />,
         }}
         chat={
           <>

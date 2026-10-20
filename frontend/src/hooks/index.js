@@ -6,3 +6,4 @@ export { useChat } from './useChat';
 export { useVoiceCall } from './useVoiceCall';
 export { useUsers } from './useUsers';
 export { useChannel } from './useChannel';
+export { useChannels } from './useChannels';

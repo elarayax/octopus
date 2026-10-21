@@ -575,6 +575,18 @@ func (a *App) handleIncomingAnswer(fromPeerID, answerB64 string) {
 	}
 }
 
+// sendSignal envía la señalización (offer/answer) al servidor de Vercel.
+//
+// Usa el MISMO cliente endurecido que el polling (vercelClient): sin
+// keep-alives. Con el cliente por defecto de Go (http.Post) las conexiones
+// se quedan en un pool ocioso; cuando Vercel cierra una de esas conexiones,
+// Go la reutiliza para enviar la señal y el edge responde con un
+// "400 Bad Request" sobre un canal que ya está inactivo, provocando el error
+//     Unsolicited response received on idle HTTP channel
+//
+// Además valida el código de respuesta (antes se ignoraba: un 400 se
+// tomaba por éxito y la app se quedaba esperando una conexión imposible)
+// y reintenta ante fallos transitorios del edge.
 func (a *App) sendSignal(to, sigType, sdp string) error {
 	a.mu.Lock()
 	from := a.myCode
@@ -587,12 +599,42 @@ func (a *App) sendSignal(to, sigType, sdp string) error {
 		"sdp":  sdp,
 	}
 	data, _ := json.Marshal(payload)
-	resp, err := http.Post(VERCEL_URL, "application/json", bytes.NewBuffer(data))
-	if err != nil {
-		return err
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			// Espera creciente entre reintentos (el edge puede estar saturado)
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
+
+		resp, err := vercelClient.Post(VERCEL_URL, "application/json", bytes.NewBuffer(data))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+
+		lastErr = fmt.Errorf("el servidor respondió %d: %s",
+			resp.StatusCode, strings.TrimSpace(string(body)))
+
+		// Un 4xx (salvo 429) significa que el payload es inválido:
+		// reintentar no va a ayudar.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+			return lastErr
+		}
 	}
-	_ = resp.Body.Close()
-	return nil
+
+	return lastErr
 }
 
 func (a *App) removePeer(id string) {

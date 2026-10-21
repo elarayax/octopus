@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { InputWithButton } from '../molecules';
 
-export function ConnectionPanel({ onConnect }) {
+export function ConnectionPanel({ connect }) {
   const [address, setAddress] = useState('');
 
   return (
@@ -12,7 +12,7 @@ export function ConnectionPanel({ onConnect }) {
         placeholder="Pega el ID Fijo de tu amigo (6 letras)..."
         buttonLabel="Conectar"
         variant="info"
-        onSubmit={() => onConnect(address)}
+        onSubmit={() => connect(address)}
         submitOnEnter
       />
     </div>

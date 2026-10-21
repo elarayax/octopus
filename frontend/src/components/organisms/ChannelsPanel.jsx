@@ -1,4 +1,5 @@
 import { Button } from '../atoms';
+import { STATUS } from '../../hooks/useP2P';
 
 function ChannelIcon({ icono }) {
   if (icono && icono.startsWith('data:image')) {
@@ -17,7 +18,10 @@ export function ChannelsPanel({ channels, currentCode, onSwitch, onConnect, stat
     );
   }
 
-  const idle = status === 'IDLE';
+  // El botón de conectar debe estar disponible siempre que no estemos
+  // conectando (antes se comparaba con 'IDLE' en mayúsculas, pero los
+  // estados de useP2P van en minúsculas => el botón nunca aparecía).
+  const canConnect = status !== STATUS.CONNECTING;
 
   return (
     <section className="panel channels-panel">
@@ -35,7 +39,7 @@ export function ChannelsPanel({ channels, currentCode, onSwitch, onConnect, stat
                   <span className="channel-row__code">{c.codigo}</span>
                 </div>
               </button>
-              {idle && !isCurrent && (
+              {canConnect && !isCurrent && (
                 <Button
                   variant="secondary"
                   size="sm"

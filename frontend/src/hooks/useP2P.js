@@ -46,7 +46,16 @@ export function useP2P({ notify }) {
       if (!address.trim()) return;
       setStatus(STATUS.CONNECTING);
       try {
-        notify(await ConnectToPeer(address));
+        const res = await ConnectToPeer(address);
+        // ConnectToPeer devuelve un mensaje de texto: si es un error hay que
+        // volver al estado anterior y avisar (si no, la app se queda en
+        // "Conectando con peer..." para siempre).
+        if (res && (res.includes('Error') || res.includes('No puedes') || res.includes('inválido'))) {
+          setStatus(STATUS.LISTENING);
+          notify(res, 'error');
+          return;
+        }
+        notify(res);
       } catch (err) {
         setStatus(STATUS.LISTENING);
         notify(`No se pudo conectar: ${err}`, 'error');

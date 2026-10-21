@@ -80,6 +80,18 @@ func gifToFrames(g *gif.GIF) ([]image.Image, []uint) {
 	durations := make([]uint, 0, len(g.Image))
 
 	for i, frame := range g.Image {
+		// Guardamos el lienzo por si el frame declara "disposal = previous"
+		// (3), que restaura el estado anterior a este frame.
+		var previo *image.NRGBA
+		disposal := byte(gif.DisposalNone)
+		if i < len(g.Disposal) {
+			disposal = g.Disposal[i]
+		}
+		if disposal == gif.DisposalPrevious {
+			previo = image.NewNRGBA(canvas.Bounds())
+			copy(previo.Pix, canvas.Pix)
+		}
+
 		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
 
 		// Snapshot del lienzo como frame compuesto
@@ -93,9 +105,15 @@ func gifToFrames(g *gif.GIF) ([]image.Image, []uint) {
 		}
 		durations = append(durations, delayMs)
 
-		// Disposal "restaurar a fondo": limpiar el área del frame
-		if i < len(g.Disposal) && g.Disposal[i] == gif.DisposalBackground {
+		switch disposal {
+		case gif.DisposalBackground:
+			// "Restaurar a fondo": limpiar el área del frame
 			draw.Draw(canvas, frame.Bounds(), image.Transparent, image.Point{}, draw.Src)
+		case gif.DisposalPrevious:
+			// "Restaurar a anterior": deshacer este frame
+			if previo != nil {
+				copy(canvas.Pix, previo.Pix)
+			}
 		}
 	}
 	return frames, durations
@@ -109,11 +127,23 @@ func encodeAnimatedWebP(frames []image.Image, durations []uint, loopCount uint16
 		for i, f := range fr {
 			resized[i] = resizeToMax(f, maxDim)
 		}
+		// Disposals: 1 = "clear to background" (WebP).
+		//
+		// Cada frame es una INSTANTÁNEA COMPLETA del lienzo GIF ya compuesto.
+		// Si el disposal fuera "none" (0), el visor dibujaría cada frame
+		// ENCIMA del anterior: las zonas transparentes del frame nuevo dejarían
+		// ver el contenido del frame viejo -> "residuos" (fantasmas).
+		// Con "background" el lienzo se limpia tras cada frame y cada uno se
+		// dibuja sobre un lienzo limpio.
+		disposals := make([]uint, len(fr))
+		for i := range disposals {
+			disposals[i] = 1
+		}
 		var buf bytes.Buffer
 		err := webp.EncodeAll(&buf, &webp.Animation{
 			Images:    resized,
 			Durations: du,
-			Disposals: make([]uint, len(fr)),
+			Disposals: disposals,
 			LoopCount: loopCount,
 		}, &webp.Options{CompressionLevel: webp.DefaultCompression})
 		return buf.Bytes(), err

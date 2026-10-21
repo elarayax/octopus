@@ -24,12 +24,20 @@ func (a *App) initDB() error {
 	_ = os.MkdirAll(configDir, 0700)
 
 	dbPath := filepath.Join(configDir, "app_data.db")
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return err
-	}
 
-	if _, err := db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+	// SQLite es de un solo escritor. Con el DSN por defecto las conexiones
+	// del pool no tienen busy_timeout, así que una escritura que coincide con
+	// una lectura abierta falla al instante con "database is locked
+	// (SQLITE_BUSY)" en vez de esperar.
+	//   - journal_mode=WAL: lectores y escritor conviven
+	//   - busy_timeout=5000: si hay dos escritores, se espera hasta 5s
+	//   - foreign_keys/synchronous: se aplican en CADA conexión del pool
+	//     (antes el PRAGMA foreign_keys solo afectaba a una de ellas)
+	dsn := fmt.Sprintf("%s?_busy_timeout=5000&_pragma=journal_mode(WAL)"+
+		"&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", dbPath)
+
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
 		return err
 	}
 
@@ -54,6 +62,9 @@ func (a *App) initDB() error {
 	_ = db.QueryRow("SELECT count(*) > 0 FROM sqlite_master WHERE type='table' AND name='canal'").Scan(&canalExists)
 
 	if canalExists && !hasCodigo {
+		// La migración mueve claves foráneas: se fuerza una única conexión
+		// para que los PRAGMA y el DDL afecten a la misma conexión.
+		db.SetMaxOpenConns(1)
 		_, _ = db.Exec("PRAGMA foreign_keys = OFF;")
 		_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS canal_new (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,6 +79,7 @@ func (a *App) initDB() error {
 		_, _ = db.Exec("DROP TABLE canal;")
 		_, _ = db.Exec("ALTER TABLE canal_new RENAME TO canal;")
 		_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+		db.SetMaxOpenConns(0) // restaurar el pool normal
 	}
 
 	if _, err := db.Exec(schemaSQL); err != nil {

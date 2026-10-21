@@ -19,6 +19,28 @@ Guía rápida de comandos, flujo de trabajo y resolución de errores para el des
 
 ---
 
+## 📚 Documentación del código
+
+En la carpeta [`docs/`](docs/) hay una guía completa del backend, escrita para
+estudiar el código: **qué hace cada método y por qué la lógica está escrita así**.
+
+| Documento | Contenido |
+|-----------|-----------|
+| [docs/00-indice.md](docs/00-indice.md) | Mapa del proyecto y orden de lectura |
+| [docs/01-arquitectura.md](docs/01-arquitectura.md) | Flujo de datos, topología en estrella, señalización |
+| [docs/02-main.md](docs/02-main.md) | `main.go` — arranque de Wails |
+| [docs/03-app.md](docs/03-app.md) | `app.go` — estado global y API para la UI |
+| [docs/04-webrtc.md](docs/04-webrtc.md) | `webrtc.go` — identidad, buzón y conexiones P2P |
+| [docs/05-db.md](docs/05-db.md) | `db.go` — SQLite, historial y directorio |
+| [docs/06-audio.md](docs/06-audio.md) | `audio.go` — volúmenes y voz |
+| [docs/07-avatar.md](docs/07-avatar.md) | `avatar.go` — optimización de imágenes a WebP |
+| [docs/08-chat_image.md](docs/08-chat_image.md) | `chat_image.go` — envío de imágenes |
+| [docs/09-mods.md](docs/09-mods.md) | `mods.go` — temas y layout |
+| [docs/10-frontend.md](docs/10-frontend.md) | El puente Go ↔ React y los hooks |
+| [docs/11-bugs-corregidos.md](docs/11-bugs-corregidos.md) | Errores reales encontrados y por qué se rompían |
+
+---
+
 ## 💻 1. Comandos de Trabajo Diario
 
 En macOS Sequoia / Apple Silicon es necesario especificar el compilador nativo (`/usr/bin/clang`) y los *frameworks* del sistema para evitar fallos de enlace con CGO (`_OBJC_CLASS_$_UTType`).

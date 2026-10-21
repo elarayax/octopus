@@ -18,6 +18,16 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// vercelClient deshabilita keep-alives para evitar el error
+// "Unsolicited response received on idle HTTP channel" que ocurre
+// cuando Vercel cierra conexiones inactivas y Go intenta reutilizarlas.
+var vercelClient = &http.Client{
+	Transport: &http.Transport{
+		DisableKeepAlives: true,
+	},
+	Timeout: 10 * time.Second,
+}
+
 type PeerSession struct {
 	id  string
 	pc  *webrtc.PeerConnection
@@ -171,7 +181,7 @@ func (a *App) pollMailbox(stopChan <-chan struct{}) {
 				continue
 			}
 
-			resp, err := http.Get(fmt.Sprintf("%s?for=%s", VERCEL_URL, code))
+			resp, err := vercelClient.Get(fmt.Sprintf("%s?for=%s", VERCEL_URL, code))
 			if err != nil {
 				continue
 			}

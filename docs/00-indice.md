@@ -19,6 +19,7 @@ que explica **qué hace cada método** y **por qué la lógica está escrita as�
 | 09 | [mods.md](09-mods.md) | Temas y layout personalizables | fácil |
 | 10 | [Frontend](10-frontend.md) | Puente Go ↔ React y los hooks que importan | fácil |
 | 11 | [Bugs corregidos](11-bugs-corregidos.md) | Errores reales encontrados y por qué se rompían | — |
+| 12 | [Canales y notificaciones](12-canales-y-notificaciones.md) | Selección, conexión confirmada, reintentos e indicaciones de audio/voz | fácil |
 
 ## Mapa rápido de archivos
 

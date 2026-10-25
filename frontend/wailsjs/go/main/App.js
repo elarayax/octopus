@@ -26,12 +26,20 @@ export function GetChatHistory() {
   return window['go']['main']['App']['GetChatHistory']();
 }
 
+export function GetCurrentChannelCode() {
+  return window['go']['main']['App']['GetCurrentChannelCode']();
+}
+
 export function GetMyCode() {
   return window['go']['main']['App']['GetMyCode']();
 }
 
 export function GetNodeInfo() {
   return window['go']['main']['App']['GetNodeInfo']();
+}
+
+export function GetPersonalChannelCode() {
+  return window['go']['main']['App']['GetPersonalChannelCode']();
 }
 
 export function GetUsername() {
@@ -84,6 +92,10 @@ export function SetChannelInfo(arg1, arg2, arg3) {
 
 export function SetUsername(arg1) {
   return window['go']['main']['App']['SetUsername'](arg1);
+}
+
+export function SetVoicePresence(arg1) {
+  return window['go']['main']['App']['SetVoicePresence'](arg1);
 }
 
 export function StartServer(arg1) {

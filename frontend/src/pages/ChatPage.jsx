@@ -31,7 +31,7 @@ export default function ChatPage() {
       users.refresh();
     },
     notify,
-    p2pStatus: p2p.status,
+    connectedCodes: p2p.peers,
   });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -89,10 +89,12 @@ export default function ChatPage() {
           channels: (
             <ChannelsPanel
               channels={channels.channels}
-              currentCode={p2p.nodeInfo?.code}
+              ownCode={channels.personalCode}
+              selectedCode={channels.selectedCode}
+              connectedCodes={p2p.peers}
+              connectingCodes={channels.connectingCodes}
               onSwitch={channels.switchTo}
               onConnect={channels.connectTo}
-              status={p2p.status}
             />
           ),
           voice: <VoicePanel call={call} />,

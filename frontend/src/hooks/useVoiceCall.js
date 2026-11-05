@@ -3,6 +3,7 @@ import { useAudioPrefs } from './useAudioPrefs';
 import { useAudioDevices } from './useAudioDevices';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useMicCapture } from './useMicCapture';
+import { SetVoicePresence } from '../../wailsjs/go/main/App';
 
 export function useVoiceCall({ notify }) {
   const prefs = useAudioPrefs();
@@ -17,6 +18,7 @@ export function useVoiceCall({ notify }) {
     try {
       await mic.start(devices.selectedId);
       await playback.resume();
+      await SetVoicePresence(true);
       devices.refresh(); // tras el permiso aparecen los nombres de los micrófonos
       setMuted(false);
       setActive(true);
@@ -27,6 +29,7 @@ export function useVoiceCall({ notify }) {
 
   const leave = useCallback(() => {
     mic.stop();
+    SetVoicePresence(false).catch((err) => console.error('SetVoicePresence:', err));
     setActive(false);
   }, [mic]);
 

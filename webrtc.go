@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -63,7 +64,12 @@ func persistCode(codePath, code string) string {
 
 // getOrCreateFixedCode devuelve el código fijo del equipo (por usuario del SO).
 // Es estable: NO cambia aunque cambie el puerto, la red o el nombre de usuario.
+var fixedCodeMu sync.Mutex
+
 func getOrCreateFixedCode() string {
+	fixedCodeMu.Lock()
+	defer fixedCodeMu.Unlock()
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return generateRoomCode()
@@ -158,6 +164,7 @@ func (a *App) StartServer(port string) string {
 
 	info := a.GetChannelInfo()
 	a.SetChannelInfo(info.Nombre, info.Subtitulo, info.Icono)
+	runtime.EventsEmit(a.ctx, "channel_switched", code)
 
 	go a.pollMailbox(stopChan)
 
@@ -219,7 +226,7 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 
 	dc.OnOpen(func() {
 		if isChat {
-			runtime.EventsEmit(a.ctx, "peer_connected", fmt.Sprintf("Peer %s conectado", remoteID))
+			runtime.EventsEmit(a.ctx, "peer_connected", remoteID)
 			// Handshake: presentarse (nombre) y compartir el avatar propio
 			a.sendHello(dc)
 			a.sendAvatarTo(dc)
@@ -377,6 +384,28 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 	case "audio":
 		runtime.EventsEmit(a.ctx, "receive_audio", pkt.Audio)
 
+	case "voice_join":
+		if code != a.myCode {
+			a.mu.Lock()
+			_, alreadyJoined := a.voicePeers[code]
+			a.voicePeers[code] = true
+			a.mu.Unlock()
+			if !alreadyJoined {
+				runtime.EventsEmit(a.ctx, "voice_peer_joined", code)
+			}
+		}
+
+	case "voice_leave":
+		if code != a.myCode {
+			a.mu.Lock()
+			_, wasJoined := a.voicePeers[code]
+			delete(a.voicePeers, code)
+			a.mu.Unlock()
+			if wasJoined {
+				runtime.EventsEmit(a.ctx, "voice_peer_left", code)
+			}
+		}
+
 	case "hello":
 		if code == a.myCode {
 			break
@@ -419,7 +448,12 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 	case "bye":
 		a.mu.Lock()
 		delete(a.onlineSet, code)
+		_, wasInVoice := a.voicePeers[code]
+		delete(a.voicePeers, code)
 		a.mu.Unlock()
+		if wasInVoice {
+			runtime.EventsEmit(a.ctx, "voice_peer_left", code)
+		}
 		runtime.EventsEmit(a.ctx, "peer_info", UserEntry{Name: "", Online: false})
 
 	case "channel":
@@ -582,7 +616,8 @@ func (a *App) handleIncomingAnswer(fromPeerID, answerB64 string) {
 // se quedan en un pool ocioso; cuando Vercel cierra una de esas conexiones,
 // Go la reutiliza para enviar la señal y el edge responde con un
 // "400 Bad Request" sobre un canal que ya está inactivo, provocando el error
-//     Unsolicited response received on idle HTTP channel
+//
+//	Unsolicited response received on idle HTTP channel
 //
 // Además valida el código de respuesta (antes se ignoraba: un 400 se
 // tomaba por éxito y la app se quedaba esperando una conexión imposible)
@@ -639,7 +674,10 @@ func (a *App) sendSignal(to, sigType, sdp string) error {
 
 func (a *App) removePeer(id string) {
 	a.mu.Lock()
+	delete(a.connectingPeers, id)
 	var remaining int
+	_, wasInVoice := a.voicePeers[id]
+	delete(a.voicePeers, id)
 	if s, exists := a.peers[id]; exists {
 		if s.pc != nil {
 			_ = s.pc.Close()
@@ -654,9 +692,71 @@ func (a *App) removePeer(id string) {
 		a.onlineSet = make(map[string]bool)
 	}
 	a.mu.Unlock()
+	if wasInVoice {
+		runtime.EventsEmit(a.ctx, "voice_peer_left", id)
+	}
 
 	// Avisar a los demás que este usuario se fue (red en estrella)
 	a.broadcastBye(id)
+}
+
+// SetVoicePresence notifies connected peers when this user joins or leaves voice.
+func (a *App) SetVoicePresence(joined bool) {
+	a.mu.Lock()
+	username, code := a.username, a.myCode
+	sessions := make([]*PeerSession, 0, len(a.peers))
+	for _, s := range a.peers {
+		sessions = append(sessions, s)
+	}
+	a.mu.Unlock()
+
+	typeName := "voice_leave"
+	if joined {
+		typeName = "voice_join"
+	}
+	data, err := json.Marshal(Packet{Type: typeName, Sender: username, Code: code})
+	if err != nil {
+		return
+	}
+	for _, s := range sessions {
+		ch := s.dca
+		if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
+			ch = s.dc
+		}
+		if ch != nil && ch.ReadyState() == webrtc.DataChannelStateOpen {
+			_ = ch.SendText(string(data))
+		}
+	}
+}
+
+func (a *App) discardPendingPeer(id string, pc *webrtc.PeerConnection) {
+	a.mu.Lock()
+	delete(a.connectingPeers, id)
+	if session, exists := a.peers[id]; exists && session.pc == pc {
+		delete(a.peers, id)
+	}
+	a.mu.Unlock()
+	_ = pc.Close()
+}
+
+func (a *App) expirePendingPeer(id string, pc *webrtc.PeerConnection) {
+	a.mu.Lock()
+	session, exists := a.peers[id]
+	if !exists || session.pc != pc || (session.dc != nil && session.dc.ReadyState() == webrtc.DataChannelStateOpen) {
+		a.mu.Unlock()
+		return
+	}
+	delete(a.peers, id)
+	delete(a.connectingPeers, id)
+	delete(a.voicePeers, id)
+	delete(a.onlineSet, id)
+	if len(a.peers) == 0 {
+		a.onlineSet = make(map[string]bool)
+	}
+	a.mu.Unlock()
+
+	_ = pc.Close()
+	runtime.EventsEmit(a.ctx, "peer_disconnected", id)
 }
 
 func (a *App) ConnectToPeer(input string) string {
@@ -696,12 +796,36 @@ func (a *App) ConnectToPeer(input string) string {
 	}
 
 	a.mu.Lock()
+	if a.connectingPeers[target] {
+		a.mu.Unlock()
+		return fmt.Sprintf("La conexión con %s ya está en curso.", target)
+	}
+	if existing, exists := a.peers[target]; exists {
+		state := webrtc.PeerConnectionStateClosed
+		if existing != nil && existing.pc != nil {
+			state = existing.pc.ConnectionState()
+		}
+		if state == webrtc.PeerConnectionStateNew || state == webrtc.PeerConnectionStateConnecting ||
+			state == webrtc.PeerConnectionStateConnected || state == webrtc.PeerConnectionStateDisconnected {
+			a.mu.Unlock()
+			if state == webrtc.PeerConnectionStateConnected {
+				return fmt.Sprintf("Ya estás conectado a %s.", target)
+			}
+			return fmt.Sprintf("La conexión con %s ya está en curso.", target)
+		}
+		delete(a.peers, target)
+		delete(a.voicePeers, target)
+	}
+	a.connectingPeers[target] = true
 	a.isHost = false
 	a.currentChannelID = a.upsertCanal(target, "Chat P2P", "Texto & Voz en Vivo", "🐙")
 	a.mu.Unlock()
 
 	pc, err := newPeerConnection()
 	if err != nil {
+		a.mu.Lock()
+		delete(a.connectingPeers, target)
+		a.mu.Unlock()
 		return fmt.Sprintf("Error creando WebRTC: %s", err.Error())
 	}
 
@@ -712,6 +836,9 @@ func (a *App) ConnectToPeer(input string) string {
 
 	dc, err := pc.CreateDataChannel("chat", nil)
 	if err != nil {
+		a.mu.Lock()
+		delete(a.connectingPeers, target)
+		a.mu.Unlock()
 		_ = pc.Close()
 		return fmt.Sprintf("Error creando canal de datos: %s", err.Error())
 	}
@@ -726,6 +853,9 @@ func (a *App) ConnectToPeer(input string) string {
 		Ordered:        &unordered,
 	})
 	if err != nil {
+		a.mu.Lock()
+		delete(a.connectingPeers, target)
+		a.mu.Unlock()
 		_ = pc.Close()
 		return fmt.Sprintf("Error creando canal de audio: %s", err.Error())
 	}
@@ -738,6 +868,7 @@ func (a *App) ConnectToPeer(input string) string {
 		}
 	}
 	a.peers[target] = session
+	delete(a.connectingPeers, target)
 	a.mu.Unlock()
 
 	a.setupDataChannel(target, dc)
@@ -754,10 +885,12 @@ func (a *App) ConnectToPeer(input string) string {
 
 	offer, err := pc.CreateOffer(nil)
 	if err != nil {
+		a.discardPendingPeer(target, pc)
 		return fmt.Sprintf("Error creando oferta: %s", err.Error())
 	}
 
 	if err := pc.SetLocalDescription(offer); err != nil {
+		a.discardPendingPeer(target, pc)
 		return fmt.Sprintf("Error configurando oferta: %s", err.Error())
 	}
 
@@ -769,13 +902,20 @@ func (a *App) ConnectToPeer(input string) string {
 	localOffer := pc.LocalDescription()
 	offerBytes, err := json.Marshal(localOffer)
 	if err != nil {
+		a.discardPendingPeer(target, pc)
 		return "Error codificando oferta"
 	}
 	offerB64 := base64.StdEncoding.EncodeToString(offerBytes)
 
 	if err := a.sendSignal(target, "offer", offerB64); err != nil {
+		a.discardPendingPeer(target, pc)
 		return fmt.Sprintf("Error enviando solicitud a Vercel: %s", err.Error())
 	}
+
+	// Si la otra parte no responde, liberar el intento para habilitar Play y permitir reintentar.
+	time.AfterFunc(30*time.Second, func() {
+		a.expirePendingPeer(target, pc)
+	})
 
 	return fmt.Sprintf("Solicitud enviada a %s. Conectando P2P...", target)
 }

@@ -25,7 +25,7 @@ type Message struct {
 }
 
 type Packet struct {
-	Type    string `json:"type"` // "text", "audio", "hello", "avatar", "bye", "image", "history_req", "history", "roster", "channel"
+	Type    string `json:"type"` // text/audio/hello/avatar/bye/image/history/roster/channel/voice_join/voice_leave
 	Sender  string `json:"sender"`
 	Text    string `json:"text,omitempty"`
 	Audio   string `json:"audio,omitempty"`   // base64 encoded PCM chunk
@@ -64,7 +64,9 @@ type App struct {
 	myPort           string
 	isHost           bool
 	peers            map[string]*PeerSession
+	connectingPeers  map[string]bool
 	onlineSet        map[string]bool // presencia por código (directorio vive en SQLite)
+	voicePeers       map[string]bool // peers que anunciaron presencia en el canal de voz
 	currentChannelID int             // canal activo (mensajes e identidad visibles)
 	stopPoll         chan struct{}
 	db               *sql.DB
@@ -73,9 +75,11 @@ type App struct {
 
 func NewApp() *App {
 	return &App{
-		username:  "Anónimo",
-		peers:     make(map[string]*PeerSession),
-		onlineSet: make(map[string]bool),
+		username:        "Anónimo",
+		peers:           make(map[string]*PeerSession),
+		connectingPeers: make(map[string]bool),
+		onlineSet:       make(map[string]bool),
+		voicePeers:      make(map[string]bool),
 	}
 }
 
@@ -194,6 +198,25 @@ func (a *App) GetNodeInfo() NodeInfo {
 		Code:      a.myCode,
 		MultiAddr: a.myCode,
 	}
+}
+
+// GetCurrentChannelCode devuelve el código del canal seleccionado actualmente.
+func (a *App) GetCurrentChannelCode() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.db == nil || a.currentChannelID == 0 {
+		return ""
+	}
+	var code string
+	if err := a.db.QueryRow(`SELECT codigo FROM canal WHERE id = ?`, a.currentChannelID).Scan(&code); err != nil {
+		return ""
+	}
+	return code
+}
+
+// GetPersonalChannelCode devuelve el ID fijo de este equipo sin iniciar el servidor.
+func (a *App) GetPersonalChannelCode() string {
+	return getOrCreateFixedCode()
 }
 
 // GetUsers devuelve la lista de usuarios: tú primero, luego los miembros del

@@ -1,5 +1,4 @@
 import { Button } from '../atoms';
-import { STATUS } from '../../hooks/useP2P';
 
 function ChannelIcon({ icono }) {
   if (icono && icono.startsWith('data:image')) {
@@ -8,7 +7,15 @@ function ChannelIcon({ icono }) {
   return <span className="channel-row__emoji">{icono || '🐙'}</span>;
 }
 
-export function ChannelsPanel({ channels, currentCode, onSwitch, onConnect, status }) {
+export function ChannelsPanel({
+  channels,
+  ownCode,
+  selectedCode,
+  connectedCodes = [],
+  connectingCodes = [],
+  onSwitch,
+  onConnect,
+}) {
   if (!channels || channels.length === 0) {
     return (
       <section className="panel channels-panel">
@@ -18,19 +25,29 @@ export function ChannelsPanel({ channels, currentCode, onSwitch, onConnect, stat
     );
   }
 
-  // El botón de conectar debe estar disponible siempre que no estemos
-  // conectando (antes se comparaba con 'IDLE' en mayúsculas, pero los
-  // estados de useP2P van en minúsculas => el botón nunca aparecía).
-  const canConnect = status !== STATUS.CONNECTING;
-
   return (
     <section className="panel channels-panel">
       <h3 className="panel__title">Canales</h3>
       <ul className="channels-panel__list">
         {channels.map((c) => {
-          const isCurrent = c.codigo === currentCode;
+          const isPersonal = c.codigo === ownCode;
+          const isLocal = c.codigo === 'LOCAL';
+          const isSelected = c.codigo === selectedCode;
+          const isConnected = connectedCodes.includes(c.codigo);
+          const isConnecting = connectingCodes.includes(c.codigo);
+          const canConnect = !isPersonal && !isLocal && /^[A-Z0-9]{6}$/.test(c.codigo);
+          const rowClasses = [
+            'channel-row',
+            isPersonal && 'channel-row--personal',
+            isSelected && 'channel-row--selected',
+            isConnecting && 'channel-row--connecting',
+            isConnected && 'channel-row--connected',
+          ]
+            .filter(Boolean)
+            .join(' ');
+
           return (
-            <li key={c.codigo} className={`channel-row ${isCurrent ? 'channel-row--current' : ''}`}>
+            <li key={c.codigo} className={rowClasses}>
               <button className="channel-row__main" onClick={() => onSwitch(c.codigo)} title="Cambiar a este canal">
                 <ChannelIcon icono={c.icono} />
                 <div className="channel-row__text">
@@ -39,15 +56,16 @@ export function ChannelsPanel({ channels, currentCode, onSwitch, onConnect, stat
                   <span className="channel-row__code">{c.codigo}</span>
                 </div>
               </button>
-              {canConnect && !isCurrent && (
+              {canConnect && (
                 <Button
                   variant="secondary"
                   size="sm"
                   className="channel-row__connect"
                   onClick={() => onConnect(c.codigo)}
-                  title={`Conectarse a ${c.codigo}`}
+                  disabled={isConnected || isConnecting}
+                  title={isConnected ? `Conectado a ${c.codigo}` : isConnecting ? `Conectando a ${c.codigo}` : `Conectarse a ${c.codigo}`}
                 >
-                  ▶
+                  {isConnected ? '✓' : isConnecting ? '…' : '▶'}
                 </Button>
               )}
             </li>

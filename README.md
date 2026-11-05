@@ -38,6 +38,7 @@ estudiar el código: **qué hace cada método y por qué la lógica está escrit
 | [docs/09-mods.md](docs/09-mods.md) | `mods.go` — temas y layout |
 | [docs/10-frontend.md](docs/10-frontend.md) | El puente Go ↔ React y los hooks |
 | [docs/11-bugs-corregidos.md](docs/11-bugs-corregidos.md) | Errores reales encontrados y por qué se rompían |
+| [docs/12-canales-y-notificaciones.md](docs/12-canales-y-notificaciones.md) | Selección y conexión de canales, reintentos y sonidos |
 
 ---
 

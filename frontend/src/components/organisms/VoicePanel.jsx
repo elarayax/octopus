@@ -1,8 +1,31 @@
 import { Button } from '../atoms';
 import { DeviceSelect, LevelMeter, SliderRow, VoiceStatus } from '../molecules';
+import { useVoiceNotifications } from '../../hooks/useVoiceNotifications';
+import voiceJoinSound from '../../assets/sounds/voice-join.mp3';
+import voiceLeaveSound from '../../assets/sounds/voice-leave.mp3';
 
 export function VoicePanel({ call }) {
+  useVoiceNotifications();
   const { active, muted, remoteSpeaking, join, leave, toggleMute } = call;
+
+  const playLocalSound = (source) => {
+    try {
+      const playback = new Audio(source).play();
+      playback?.catch((error) => console.debug('No se pudo reproducir el sonido de voz:', error));
+    } catch (error) {
+      console.debug('No se pudo iniciar el sonido de voz:', error);
+    }
+  };
+
+  const handleJoin = () => {
+    playLocalSound(voiceJoinSound);
+    join();
+  };
+
+  const handleLeave = () => {
+    playLocalSound(voiceLeaveSound);
+    leave();
+  };
 
   const classes = [
     'voice-panel',
@@ -22,7 +45,7 @@ export function VoicePanel({ call }) {
 
         <div className="voice-actions">
           {!active ? (
-            <Button variant="success" className="voice-btn-join" onClick={join}>
+            <Button variant="success" className="voice-btn-join" onClick={handleJoin}>
               🎙️ Unirse a Voz
             </Button>
           ) : (
@@ -34,7 +57,7 @@ export function VoicePanel({ call }) {
               >
                 {muted ? '🔇 Desmutear' : '🎙️ Mutear'}
               </Button>
-              <Button variant="danger" className="voice-btn-leave" onClick={leave}>
+              <Button variant="danger" className="voice-btn-leave" onClick={handleLeave}>
                 Salir
               </Button>
             </>

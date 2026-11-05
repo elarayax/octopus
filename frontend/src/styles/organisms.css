@@ -400,7 +400,21 @@
   transition: background-color .15s, border-color .15s;
 }
 .channel-row:hover { background-color: var(--color-bg-hover); }
-.channel-row--current { border-color: var(--color-accent); background-color: rgba(var(--color-accent-rgb, 59 130 246) / .08); }
+.channel-row--personal {
+  border-color: var(--color-accent);
+  background-color: rgb(169 156 255 / 8%);
+}
+.channel-row--selected:not(.channel-row--personal):not(.channel-row--connected):not(.channel-row--connecting) {
+  border-color: rgb(169 156 255 / 30%);
+  background-color: rgb(169 156 255 / 5%);
+}
+.channel-row--connected,
+.channel-row--connecting {
+  border-color: rgb(43 179 138 / 48%);
+  background-color: rgb(43 179 138 / 10%);
+}
+.channel-row--connected:hover,
+.channel-row--connecting:hover { background-color: rgb(43 179 138 / 14%); }
 .channel-row__main {
   flex: 1;
   display: flex;

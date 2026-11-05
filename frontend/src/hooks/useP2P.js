@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { StartServer, ConnectToPeer, GetNodeInfo } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
+import channelConnectSound from '../assets/sounds/channel-connect.mp3';
 
 export const STATUS = {
   IDLE: 'idle',
@@ -19,9 +20,15 @@ export function useP2P({ notify }) {
     const offConn = EventsOn('peer_connected', (msg) => {
       setPeers((prev) => (prev.includes(msg) ? prev : [...prev, msg]));
       setStatus(STATUS.ONLINE);
+      try {
+        const playback = new Audio(channelConnectSound).play();
+        playback?.catch((error) => console.debug('No se pudo reproducir el sonido de conexión:', error));
+      } catch (error) {
+        console.debug('No se pudo iniciar el sonido de conexión:', error);
+      }
     });
     const offDisconn = EventsOn('peer_disconnected', (peerId) => {
-      setPeers((prev) => prev.filter((p) => !p.includes(peerId)));
+      setPeers((prev) => prev.filter((p) => p !== peerId));
     });
     return () => {
       offConn();
@@ -47,21 +54,30 @@ export function useP2P({ notify }) {
       setStatus(STATUS.CONNECTING);
       try {
         const res = await ConnectToPeer(address);
+        if (res?.startsWith('Ya estás conectado')) {
+          setStatus(STATUS.ONLINE);
+          notify(res, 'success');
+          return;
+        }
+        if (res?.startsWith('La conexión')) {
+          notify(res, 'success');
+          return;
+        }
         // ConnectToPeer devuelve un mensaje de texto: si es un error hay que
         // volver al estado anterior y avisar (si no, la app se queda en
         // "Conectando con peer..." para siempre).
-        if (res && (res.includes('Error') || res.includes('No puedes') || res.includes('inválido'))) {
-          setStatus(STATUS.LISTENING);
+        if (res && (res.includes('Error') || res.includes('No puedes') || res.includes('inválido') || res.includes('Debes iniciar'))) {
+          setStatus(nodeInfo.code ? STATUS.LISTENING : STATUS.IDLE);
           notify(res, 'error');
           return;
         }
         notify(res);
       } catch (err) {
-        setStatus(STATUS.LISTENING);
+        setStatus(nodeInfo.code ? STATUS.LISTENING : STATUS.IDLE);
         notify(`No se pudo conectar: ${err}`, 'error');
       }
     },
-    [notify]
+    [notify, nodeInfo.code]
   );
 
   return { port, setPort, status, peers, nodeInfo, startServer, connect };

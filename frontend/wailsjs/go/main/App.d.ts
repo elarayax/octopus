@@ -14,9 +14,13 @@ export function GetChannelInfo():Promise<main.ChannelInfo>;
 
 export function GetChatHistory():Promise<Array<main.Message>>;
 
+export function GetCurrentChannelCode():Promise<string>;
+
 export function GetMyCode():Promise<string>;
 
 export function GetNodeInfo():Promise<main.NodeInfo>;
+
+export function GetPersonalChannelCode():Promise<string>;
 
 export function GetUsername():Promise<string>;
 
@@ -43,6 +47,8 @@ export function SetChannelIconFromDialog():Promise<string>;
 export function SetChannelInfo(arg1:string,arg2:string,arg3:string):Promise<main.ChannelInfo>;
 
 export function SetUsername(arg1:string):Promise<string>;
+
+export function SetVoicePresence(arg1:boolean):Promise<void>;
 
 export function StartServer(arg1:string):Promise<string>;
 

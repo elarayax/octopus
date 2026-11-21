@@ -16,6 +16,13 @@ export function useP2P({ notify }) {
   const [peers, setPeers] = useState([]);
   const [nodeInfo, setNodeInfo] = useState({ code: '', multiAddr: '' });
 
+  // Mostrar el ID fijo desde el principio (sin esperar a iniciar el servidor)
+  useEffect(() => {
+    GetNodeInfo()
+      .then((info) => info && info.code && setNodeInfo(info))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const offConn = EventsOn('peer_connected', (msg) => {
       setPeers((prev) => (prev.includes(msg) ? prev : [...prev, msg]));
@@ -28,7 +35,7 @@ export function useP2P({ notify }) {
       }
     });
     const offDisconn = EventsOn('peer_disconnected', (peerId) => {
-      setPeers((prev) => prev.filter((p) => p !== peerId));
+      setPeers((prev) => prev.filter((p) => !p.includes(peerId)));
     });
     return () => {
       offConn();
@@ -54,6 +61,9 @@ export function useP2P({ notify }) {
       setStatus(STATUS.CONNECTING);
       try {
         const res = await ConnectToPeer(address);
+        // ConnectToPeer devuelve un mensaje de texto: si es un error hay que
+        // volver al estado anterior y avisar (si no, la app se queda en
+        // "Conectando con peer..." para siempre).
         if (res?.startsWith('Ya estás conectado')) {
           setStatus(STATUS.ONLINE);
           notify(res, 'success');
@@ -63,9 +73,6 @@ export function useP2P({ notify }) {
           notify(res, 'success');
           return;
         }
-        // ConnectToPeer devuelve un mensaje de texto: si es un error hay que
-        // volver al estado anterior y avisar (si no, la app se queda en
-        // "Conectando con peer..." para siempre).
         if (res && (res.includes('Error') || res.includes('No puedes') || res.includes('inválido') || res.includes('Debes iniciar'))) {
           setStatus(nodeInfo.code ? STATUS.LISTENING : STATUS.IDLE);
           notify(res, 'error');

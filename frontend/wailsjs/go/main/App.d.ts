@@ -30,21 +30,33 @@ export function LoadCustomCSS():Promise<string>;
 
 export function LoadCustomLayout():Promise<main.ModLayout>;
 
+export function LoadCustomVideoCSS():Promise<string>;
+
+export function NotifyDesktop(arg1:string,arg2:string):Promise<string>;
+
 export function OpenModsFolder():Promise<string>;
+
+export function ReactToMessage(arg1:string,arg2:string):Promise<string>;
 
 export function SendAudio(arg1:string):Promise<string>;
 
 export function SendImageFromDialog():Promise<string>;
 
-export function SendMessage(arg1:string):Promise<string>;
+export function SendMessage(arg1:string,arg2:string):Promise<string>;
+
+export function SendVideo(arg1:string,arg2:string):Promise<string>;
 
 export function SetAudioPrefs(arg1:number,arg2:number):Promise<void>;
 
 export function SetAvatarFromDialog():Promise<string>;
 
+export function SetCallState(arg1:boolean):Promise<string>;
+
 export function SetChannelIconFromDialog():Promise<string>;
 
 export function SetChannelInfo(arg1:string,arg2:string,arg3:string):Promise<main.ChannelInfo>;
+
+export function SetUnread(arg1:number):Promise<void>;
 
 export function SetUsername(arg1:string):Promise<string>;
 

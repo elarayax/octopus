@@ -12,7 +12,7 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
  * Historial de canales recientes. Permite cambiar de canal (sin conectar)
  * o conectarse directamente a uno.
  */
-export function useChannels({ onSwitch, notify, connectedCodes = [] }) {
+export function useChannels({ onSwitch, notify, p2pStatus, connectedCodes = [] }) {
   const [channels, setChannels] = useState([]);
   const [personalCode, setPersonalCode] = useState('');
   const [selectedCode, setSelectedCode] = useState('');

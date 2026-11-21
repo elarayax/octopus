@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -89,6 +91,12 @@ func (a *App) initDB() error {
 	// Migración: instalaciones antiguas no tienen la columna tipo
 	// (ignora el error "duplicate column name" si ya existe)
 	_, _ = db.Exec(`ALTER TABLE mensaje ADD COLUMN tipo VARCHAR(10) NOT NULL DEFAULT 'text'`)
+	// Migración: uid estable por mensaje (respuestas y reacciones) y a quién responde
+	_, _ = db.Exec(`ALTER TABLE mensaje ADD COLUMN uid VARCHAR(32)`)
+	_, _ = db.Exec(`ALTER TABLE mensaje ADD COLUMN responde_a VARCHAR(32)`)
+	_, _ = db.Exec(`CREATE INDEX IF NOT EXISTS idx_mensaje_uid ON mensaje(uid)`)
+	// Mensajes anteriores a esta versión: darles un uid local para poder responderlos
+	_, _ = db.Exec(`UPDATE mensaje SET uid = lower(hex(randomblob(8))) WHERE uid IS NULL OR uid = ''`)
 
 	// Migración: crear canal por defecto para los mensajes existentes
 	_, _ = db.Exec(`INSERT INTO canal (id, codigo, nombre) VALUES (1, 'LOCAL', 'Canal local') ON CONFLICT(id) DO NOTHING`)
@@ -277,8 +285,24 @@ func (a *App) saveMessage(sender, text string) {
 // saveMessageKind guarda un mensaje en el canal activo; si creadoEn viene con
 // valor (sync de historial) conserva la fecha original
 func (a *App) saveMessageKind(sender, contenido, kind, creadoEn string) {
+	a.saveMessageFull(sender, contenido, kind, creadoEn, "", "")
+}
+
+// newMsgID genera el uid de un mensaje (16 hex): es el mismo en todos los peers
+func newMsgID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// saveMessageFull guarda un mensaje con su uid y (opcional) el uid al que
+// responde. Si uid viene vacío se genera uno local. Devuelve el uid guardado.
+func (a *App) saveMessageFull(sender, contenido, kind, creadoEn, uid, replyTo string) string {
+	if uid == "" {
+		uid = newMsgID()
+	}
 	if a.db == nil {
-		return
+		return uid
 	}
 	if a.currentChannelID == 0 {
 		a.currentChannelID = 1
@@ -287,15 +311,81 @@ func (a *App) saveMessageKind(sender, contenido, kind, creadoEn string) {
 	_, _ = a.db.Exec(`INSERT OR IGNORE INTO usuario (id, nombre) VALUES (?, ?)`, sender, sender)
 	if creadoEn != "" {
 		_, _ = a.db.Exec(
-			`INSERT INTO mensaje (contenido, tipo, id_canal, id_usuario, creado_en) VALUES (?, ?, ?, ?, ?)`,
-			contenido, kind, a.currentChannelID, sender, creadoEn,
+			`INSERT INTO mensaje (contenido, tipo, uid, responde_a, id_canal, id_usuario, creado_en) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
+			contenido, kind, uid, replyTo, a.currentChannelID, sender, creadoEn,
 		)
 	} else {
 		_, _ = a.db.Exec(
-			`INSERT INTO mensaje (contenido, tipo, id_canal, id_usuario) VALUES (?, ?, ?, ?)`,
-			contenido, kind, a.currentChannelID, sender,
+			`INSERT INTO mensaje (contenido, tipo, uid, responde_a, id_canal, id_usuario) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?)`,
+			contenido, kind, uid, replyTo, a.currentChannelID, sender,
 		)
 	}
+	return uid
+}
+
+// messageUIDExists: ¿ya tenemos un mensaje con este uid?
+func (a *App) messageUIDExists(uid string) bool {
+	if a.db == nil || uid == "" {
+		return false
+	}
+	var n int
+	_ = a.db.QueryRow(`SELECT COUNT(*) FROM mensaje WHERE uid = ?`, uid).Scan(&n)
+	return n > 0
+}
+
+// ---------- Reacciones ----------
+
+func (a *App) hasReaction(uid, user, emoji string) bool {
+	if a.db == nil {
+		return false
+	}
+	var n int
+	_ = a.db.QueryRow(
+		`SELECT COUNT(*) FROM reaccion WHERE msg_uid = ? AND id_usuario = ? AND emoji = ?`,
+		uid, user, emoji,
+	).Scan(&n)
+	return n > 0
+}
+
+func (a *App) setReaction(uid, user, emoji string, add bool) {
+	if a.db == nil {
+		return
+	}
+	if add {
+		_, _ = a.db.Exec(`INSERT OR IGNORE INTO reaccion (msg_uid, id_usuario, emoji) VALUES (?, ?, ?)`, uid, user, emoji)
+	} else {
+		_, _ = a.db.Exec(`DELETE FROM reaccion WHERE msg_uid = ? AND id_usuario = ? AND emoji = ?`, uid, user, emoji)
+	}
+}
+
+// loadReactions devuelve uid -> emoji -> [nombres] de los mensajes del canal
+func (a *App) loadReactions(canalID int) map[string]map[string][]string {
+	out := map[string]map[string][]string{}
+	if a.db == nil {
+		return out
+	}
+	rows, err := a.db.Query(`
+		SELECT r.msg_uid, r.emoji, r.id_usuario
+		FROM reaccion r
+		JOIN mensaje m ON m.uid = r.msg_uid
+		WHERE m.id_canal = ?
+		ORDER BY r.rowid
+	`, canalID)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uid, emoji, user string
+		if rows.Scan(&uid, &emoji, &user) != nil {
+			continue
+		}
+		if out[uid] == nil {
+			out[uid] = map[string][]string{}
+		}
+		out[uid][emoji] = append(out[uid][emoji], user)
+	}
+	return out
 }
 
 // messageExists: dedupe para la fusión de historiales (dentro del canal activo)
@@ -319,8 +409,11 @@ func (a *App) GetChatHistory() []Message {
 		a.currentChannelID = 1
 	}
 
+	reactions := a.loadReactions(a.currentChannelID)
+
 	rows, err := a.db.Query(`
-		SELECT id_usuario, contenido, tipo, strftime('%Y-%m-%d %H:%M:%S', creado_en)
+		SELECT id_usuario, contenido, tipo, strftime('%Y-%m-%d %H:%M:%S', creado_en),
+		       COALESCE(uid, ''), COALESCE(responde_a, '')
 		FROM mensaje
 		WHERE id_canal = ?
 		ORDER BY creado_en ASC, id ASC
@@ -334,7 +427,8 @@ func (a *App) GetChatHistory() []Message {
 	for rows.Next() {
 		var msg Message
 		var contenido string
-		if err := rows.Scan(&msg.Sender, &contenido, &msg.Kind, &msg.Time); err == nil {
+		if err := rows.Scan(&msg.Sender, &contenido, &msg.Kind, &msg.Time, &msg.ID, &msg.ReplyTo); err == nil {
+			msg.Reactions = reactions[msg.ID]
 			if msg.Kind == "image" {
 				msg.Image = "data:image/webp;base64," + contenido
 			} else {
@@ -361,8 +455,11 @@ func (a *App) exportHistory() string {
 		a.currentChannelID = 1
 	}
 
+	reactions := a.loadReactions(a.currentChannelID)
+
 	rows, err := a.db.Query(`
-		SELECT id_usuario, contenido, tipo, strftime('%Y-%m-%d %H:%M:%S', creado_en)
+		SELECT id_usuario, contenido, tipo, strftime('%Y-%m-%d %H:%M:%S', creado_en),
+		       COALESCE(uid, ''), COALESCE(responde_a, '')
 		FROM mensaje
 		WHERE id_canal = ?
 		ORDER BY id DESC
@@ -373,21 +470,32 @@ func (a *App) exportHistory() string {
 	}
 	defer rows.Close()
 
+	// Los campos nuevos son opcionales: peers antiguos simplemente los ignoran
 	type syncMsg struct {
-		Sender string `json:"sender"`
-		Body   string `json:"body"`
-		Kind   string `json:"kind"`
-		Time   string `json:"time"`
+		Sender    string              `json:"sender"`
+		Body      string              `json:"body"`
+		Kind      string              `json:"kind"`
+		Time      string              `json:"time"`
+		UID       string              `json:"uid,omitempty"`
+		Reply     string              `json:"reply,omitempty"`
+		Reactions map[string][]string `json:"reactions,omitempty"`
 	}
 
 	var msgs []syncMsg
 	size := 2 // corchetes del array
 	for rows.Next() {
 		var m syncMsg
-		if err := rows.Scan(&m.Sender, &m.Body, &m.Kind, &m.Time); err != nil {
+		if err := rows.Scan(&m.Sender, &m.Body, &m.Kind, &m.Time, &m.UID, &m.Reply); err != nil {
 			continue
 		}
-		entry := len(m.Sender) + len(m.Body) + len(m.Kind) + len(m.Time) + 60
+		m.Reactions = reactions[m.UID]
+		entry := len(m.Sender) + len(m.Body) + len(m.Kind) + len(m.Time) + len(m.UID) + len(m.Reply) + 60
+		for emoji, who := range m.Reactions {
+			entry += len(emoji) + 8
+			for _, w := range who {
+				entry += len(w) + 3
+			}
+		}
 		if size+entry > historyBudget && len(msgs) > 0 {
 			break
 		}
@@ -418,16 +526,19 @@ func (a *App) mergeHistory(historyJSON string) int {
 	}
 
 	var msgs []struct {
-		Sender string `json:"sender"`
-		Body   string `json:"body"`
-		Kind   string `json:"kind"`
-		Time   string `json:"time"`
+		Sender    string              `json:"sender"`
+		Body      string              `json:"body"`
+		Kind      string              `json:"kind"`
+		Time      string              `json:"time"`
+		UID       string              `json:"uid"`
+		Reply     string              `json:"reply"`
+		Reactions map[string][]string `json:"reactions"`
 	}
 	if err := json.Unmarshal([]byte(historyJSON), &msgs); err != nil {
 		return 0
 	}
 
-	added := 0
+	added := 0 // mensajes nuevos + reacciones nuevas (cualquiera justifica recargar)
 	for _, m := range msgs {
 		if m.Sender == "" || m.Time == "" {
 			continue
@@ -435,11 +546,25 @@ func (a *App) mergeHistory(historyJSON string) int {
 		if m.Kind != "image" {
 			m.Kind = "text"
 		}
-		if a.messageExists(m.Sender, m.Body, m.Time) {
-			continue
+		// Dedupe por uid o, para mensajes antiguos (uid local distinto), por contenido+hora
+		exists := (m.UID != "" && a.messageUIDExists(m.UID)) || a.messageExists(m.Sender, m.Body, m.Time)
+		if !exists {
+			a.saveMessageFull(m.Sender, m.Body, m.Kind, m.Time, m.UID, m.Reply)
+			added++
 		}
-		a.saveMessageKind(m.Sender, m.Body, m.Kind, m.Time)
-		added++
+		if m.UID != "" {
+			for emoji, who := range m.Reactions {
+				if len(emoji) > 32 {
+					continue
+				}
+				for _, user := range who {
+					if !a.hasReaction(m.UID, user, emoji) {
+						a.setReaction(m.UID, user, emoji, true)
+						added++
+					}
+				}
+			}
+		}
 	}
 	return added
 }

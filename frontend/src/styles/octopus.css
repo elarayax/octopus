@@ -1,0 +1,272 @@
+/* ==========================================================
+   Estilos aportados por la versión octopus (fusión)
+   Solo reglas cuyo selector NO existe en el rediseño actual.
+   Se importa después de organisms.css y templates.css para que
+   los estados de canal (conectado / conectando / personal) se vean.
+   ========================================================== */
+
+/* La versión octopus usaba --color-bg-hover; aquí equivale a la superficie hover actual */
+:root { --color-bg-hover: var(--color-surface-hover); }
+
+
+/* ---------- de molecules.css ---------- */
+.chat-message__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: hsl(var(--hue) 45% 28%);
+  color: hsl(var(--hue) 85% 85%);
+}
+.chat-message__avatar--img {
+  object-fit: cover;
+  background: var(--color-surface-deep);
+}
+.chat-message__text {
+  margin-top: 1px;
+  color: var(--color-text);
+}
+
+
+/* ---------- de organisms.css ---------- */
+.app-header__actions .btn {
+  background-color: transparent;
+  border-color: var(--color-border-strong);
+  color: var(--color-text-label);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.app-header__actions .btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+  filter: none;
+}
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 2px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.status-bar__peers {
+  color: var(--color-success-bright);
+  font-weight: 600;
+}
+.voice-panel {
+  padding: 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+.voice-panel--active {
+  background-color: var(--color-surface-voice-active);
+  border-color: rgba(79, 224, 176, 0.4);
+}
+.voice-panel--speaking {
+  border-color: var(--color-success-bright);
+  box-shadow: 0 0 0 3px rgba(79, 224, 176, 0.25), 0 0 32px rgba(79, 224, 176, 0.18);
+}
+.voice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.voice-info__title { font-size: 1.02rem; font-weight: 700; }
+.voice-actions { display: flex; gap: var(--space-2); }
+.node-card {
+  padding: 14px 16px;
+  background-color: var(--color-surface-card);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-xl);
+}
+.node-card strong {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.node-card__code {
+  display: block;
+  margin: 6px 0 4px;
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--color-primary-soft);
+}
+.node-card__hint {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.chat-input .input {
+  padding: 11px 14px;
+  border-radius: var(--radius-lg);
+}
+.chat-input .btn { padding: 0 22px; border-radius: var(--radius-lg); }
+.users-panel__title {
+  margin: 0 0 var(--space-3);
+  font-size: 0.95rem;
+  color: var(--color-text-label);
+}
+.users-panel__row--offline { opacity: 0.55; }
+.users-panel__avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-surface-deep);
+}
+.users-panel__avatar--placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-label);
+  background: var(--color-neutral);
+}
+.users-panel__status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.voice-config {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+.voice-config__summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.voice-config__summary::-webkit-details-marker { display: none; }
+.voice-config__summary::after {
+  content: "▸";
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+.voice-config[open] .voice-config__summary::after { transform: rotate(90deg); }
+.voice-config__summary:hover { color: var(--color-text-label); }
+.voice-config__body {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.status-bar__server {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.status-bar__port { position: relative; }
+.port-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+.port-popover__label {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+.port-popover .input { width: 80px; }
+.port-popover--wide {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  min-width: 260px;
+}
+.port-popover__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.port-popover__row .input { flex: 1; width: auto; }
+.port-popover__row .port-popover__icon { flex: none; width: 48px; text-align: center; }
+.port-popover__row .port-popover__port { flex: none; width: 70px; }
+.port-popover__row--actions { justify-content: flex-end; }
+.port-popover__icon-preview {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+.channel-row--personal {
+  border-color: var(--color-accent);
+  background-color: rgb(169 156 255 / 8%);
+}
+.channel-row--selected:not(.channel-row--personal):not(.channel-row--connected):not(.channel-row--connecting) {
+  border-color: rgb(169 156 255 / 30%);
+  background-color: rgb(169 156 255 / 5%);
+}
+.channel-row--connected,
+.channel-row--connecting {
+  border-color: rgb(43 179 138 / 48%);
+  background-color: rgb(43 179 138 / 10%);
+}
+.channel-row--connected:hover,
+.channel-row--connecting:hover { background-color: rgb(43 179 138 / 14%); }
+.channel-row__code {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ---------- de templates.css ---------- */
+.main-layout__status { grid-area: status; }
+.main-layout__sidebar {
+  grid-area: side;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+@media (max-width: 760px) {
+.main-layout__sidebar { overflow: visible; }
+}
+@media (prefers-reduced-motion: reduce) {
+.btn,
+  .input,
+  .voice-panel,
+  .level-meter__bar { transition: none; }
+}
+
+
+/* Botón de conectar de la tarjeta de canal: estados deshabilitado / conectado */
+.channel-row__connect:disabled { cursor: default; }
+.channel-row--connected .channel-row__connect,
+.channel-row--connecting .channel-row__connect { opacity: 1; }

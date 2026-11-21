@@ -5,5 +5,11 @@
     "connection": true,
     "nodeInfo": true,
     "voice": true
+  },
+  "video": {
+    "mode": "pip",
+    "shape": "square",
+    "mirror": true,
+    "showNames": true
   }
 }

@@ -46,7 +46,8 @@ func (a *App) SendImageFromDialog() string {
 	}
 
 	b64 := base64.StdEncoding.EncodeToString(optimized)
-	pkt := Packet{Type: "image", Sender: currentUser, Code: a.myCode, Image: b64}
+	msgID := newMsgID()
+	pkt := Packet{Type: "image", Sender: currentUser, Code: a.myCode, Image: b64, MsgID: msgID}
 	raw, err := json.Marshal(pkt)
 	if err != nil {
 		return "Error codificando imagen"
@@ -66,11 +67,12 @@ func (a *App) SendImageFromDialog() string {
 	}
 
 	// Guardar en el historial local y mostrarla en el propio chat
-	a.saveMessageKind(currentUser, b64, "image", "")
+	a.saveMessageFull(currentUser, b64, "image", "", msgID, "")
 	runtime.EventsEmit(a.ctx, "receive_message", Message{
 		Sender: currentUser,
 		Kind:   "image",
 		Image:  "data:image/webp;base64," + b64,
+		ID:     msgID,
 	})
 	return "Enviado"
 }

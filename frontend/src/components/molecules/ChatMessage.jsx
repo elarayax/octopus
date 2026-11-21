@@ -1,28 +1,35 @@
-function hueFrom(name = '') {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return h;
-}
+import { Avatar } from '../atoms';
 
-export function ChatMessage({ sender, text, avatar, image }) {
+/**
+ * Grupo de burbujas consecutivas del mismo autor.
+ * items: [{ text, image }]
+ */
+export function ChatMessage({ sender, isSelf, time, avatar, items }) {
   const name = sender || '?';
   return (
-    <div className="chat-message" style={{ '--hue': hueFrom(name) }}>
-      {avatar ? (
-        <img className="chat-message__avatar chat-message__avatar--img" src={avatar} alt="" />
-      ) : (
-        <span className="chat-message__avatar" aria-hidden="true">
-          {name.charAt(0).toUpperCase()}
-        </span>
-      )}
+    <div className={`chat-message ${isSelf ? 'chat-message--self' : ''}`}>
+      <Avatar name={name} src={avatar} size={40} />
       <div className="chat-message__body">
-        <strong className="chat-message__sender">{name}</strong>
-        {image ? (
-          <img className="chat-message__image" src={image} alt={`Imagen enviada por ${name}`} />
-        ) : (
-          <div className="chat-message__text">{text}</div>
+        <div className="chat-message__meta">
+          <strong className="chat-message__sender">{isSelf ? 'Tú' : name}</strong>
+          {time && <span className="chat-message__time">{time}</span>}
+        </div>
+        {items.map((it, i) =>
+          it.image ? (
+            <div key={i} className="chat-message__bubble chat-message__bubble--image">
+              <img className="chat-message__image" src={it.image} alt={`Imagen enviada por ${name}`} />
+            </div>
+          ) : (
+            <div key={i} className="chat-message__bubble">
+              {it.text}
+            </div>
+          )
         )}
       </div>
     </div>
   );
+}
+
+export function DayDivider({ label }) {
+  return <div className="day-divider">{label}</div>;
 }

@@ -15,10 +15,10 @@
 
 .btn--neutral   { background-color: var(--color-neutral); }
 .btn--secondary { background-color: var(--color-secondary); }
-.btn--primary   { background-color: var(--color-primary); color: #fff; }
-.btn--info      { background-color: var(--color-info); color: #fff; }
+.btn--primary   { background: var(--brand-gradient); color: #1a0d08; }
+.btn--info      { background-color: var(--color-secondary); }
 .btn--danger    { background-color: var(--color-danger); color: #fff; }
-.btn--success   { background-color: var(--color-success); color: #04211a; }
+.btn--success   { background-color: var(--color-success-bright); color: #04211a; }
 .btn--ghost     { background-color: transparent; border-color: var(--color-border); }
 .btn--ghost:hover:not(:disabled) { border-color: var(--color-border-strong); }
 
@@ -38,7 +38,7 @@
 .input:focus-visible {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(109, 93, 240, 0.25);
+  box-shadow: 0 0 0 3px rgba(255, 122, 89, 0.22);
 }
 
 /* ---------- Label ---------- */
@@ -67,7 +67,7 @@
 .select:focus-visible {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(109, 93, 240, 0.25);
+  box-shadow: 0 0 0 3px rgba(255, 122, 89, 0.22);
 }
 
 /* ---------- Slider (riel relleno + thumb circular) ---------- */
@@ -129,7 +129,7 @@
 .status-dot--warning { background-color: var(--color-warning); }
 .status-dot--success {
   background-color: var(--color-success-bright);
-  box-shadow: 0 0 0 3px rgba(79, 224, 176, 0.18);
+  box-shadow: 0 0 0 3px rgba(61, 220, 151, 0.18);
 }
 
 /* ---------- Toast ---------- */
@@ -150,3 +150,59 @@
 }
 .toast--success { border-left-color: var(--color-success-bright); }
 .toast--error   { border-left-color: var(--color-danger); }
+
+/* ---------- Icon ---------- */
+.icon { flex: none; display: inline-block; vertical-align: middle; }
+
+/* ---------- Avatar (círculo con inicial o foto) ---------- */
+.avatar {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--size, 32px);
+  height: var(--size, 32px);
+  border-radius: 50%;
+  font-size: calc(var(--size, 32px) * 0.4);
+  font-weight: 700;
+  line-height: 1;
+  background: hsl(var(--hue, 220) 38% 33%);
+  color: hsl(var(--hue, 220) 80% 90%);
+  object-fit: cover;
+  user-select: none;
+}
+.avatar--offline {
+  background: #1d2630;
+  color: #6b7888;
+}
+.avatar--speaking { box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-success-bright); }
+.avatar__dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #5b6675;
+  border: 2px solid var(--dot-ring, var(--color-surface));
+}
+.avatar__dot--online { background: var(--color-success-bright); }
+
+/* ---------- Ecualizador (indicador de voz) ---------- */
+.eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+.eq span {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--color-success-bright);
+  animation: eq-bounce 0.9s ease-in-out infinite;
+}
+.eq span:nth-child(1) { height: 60%; animation-delay: -0.2s; }
+.eq span:nth-child(2) { height: 100%; animation-delay: -0.5s; }
+.eq span:nth-child(3) { height: 45%; animation-delay: -0.1s; }
+.eq span:nth-child(4) { height: 80%; animation-delay: -0.7s; }
+.eq--idle span { animation: none; opacity: 0.55; }
+@keyframes eq-bounce {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(1); }
+}
+.eq span { transform-origin: bottom; }

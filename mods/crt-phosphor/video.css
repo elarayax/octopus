@@ -1,0 +1,22 @@
+/* Mod CRT Phosphor — videollamada en verde fósforo */
+.video-tile {
+  border: 1px solid #33ff66;
+  border-radius: 0;
+  filter: grayscale(1) sepia(1) hue-rotate(70deg) saturate(3);
+}
+
+/* Líneas de escaneo tipo monitor CRT */
+.video-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.25) 0 1px, transparent 1px 3px);
+}
+
+.video-tile__name {
+  border-radius: 0;
+  background: #000;
+  color: #33ff66;
+  font-family: monospace;
+}

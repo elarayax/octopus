@@ -9,10 +9,19 @@ import (
 	"runtime"
 )
 
+// Opciones de la videollamada (puntero: si el mod no las define, llega null)
+type ModVideo struct {
+	Mode      string `json:"mode"`      // "grid" | "pip"
+	Shape     string `json:"shape"`     // "rounded" | "square" | "circle"
+	Mirror    bool   `json:"mirror"`    // espejo en tu propia cámara
+	ShowNames bool   `json:"showNames"` // etiqueta con el nombre
+}
+
 type ModLayout struct {
 	ThemeName       string          `json:"themeName"`
 	SidebarPosition string          `json:"sidebarPosition"` // "left" or "right"
 	Panels          map[string]bool `json:"panels"`          // ej: {"voice": true, "connection": true}
+	Video           *ModVideo       `json:"video,omitempty"` // estilo de la videollamada
 }
 
 // Devuelve el directorio base de mods (~/.chat_p2p/mods)
@@ -40,6 +49,29 @@ func (a *App) LoadCustomCSS() string {
 		defaultCSS := `/* Mod CSS por defecto */
 body {
     background-color: #12141d !important;
+}
+`
+		_ = os.WriteFile(cssPath, []byte(defaultCSS), 0644)
+		return defaultCSS
+	}
+
+	return string(data)
+}
+
+// Lee el archivo video.css de ~/.chat_p2p/mods/default/video.css (estilo de la videollamada)
+func (a *App) LoadCustomVideoCSS() string {
+	modsDir, err := a.getModsDir()
+	if err != nil {
+		return ""
+	}
+
+	cssPath := filepath.Join(modsDir, "video.css")
+	data, err := os.ReadFile(cssPath)
+	if err != nil {
+		// Si no existe, creamos un archivo de ejemplo para editar
+		defaultCSS := `/* Mod de videollamada: edita y pulsa "recargar mods" */
+.video-tile {
+    border: 2px solid #5865f2;
 }
 `
 		_ = os.WriteFile(cssPath, []byte(defaultCSS), 0644)

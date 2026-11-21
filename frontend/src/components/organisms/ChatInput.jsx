@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { Button } from '../atoms';
-import { InputWithButton } from '../molecules';
+import { Icon } from '../atoms';
+import { slugify } from '../../utils/time';
 
-export function ChatInput({ onSend, onSendImage }) {
+export function ChatInput({ onSend, onSendImage, channelName }) {
   const [text, setText] = useState('');
+  const ready = text.trim().length > 0;
 
   const submit = async () => {
-    if (!text.trim()) return;
+    if (!ready) return;
     const current = text;
     setText('');
     await onSend(current);
@@ -14,23 +15,28 @@ export function ChatInput({ onSend, onSendImage }) {
 
   return (
     <div className="chat-input">
-      <Button
-        variant="secondary"
+      <button
         className="chat-input__attach"
         onClick={onSendImage}
         title="Enviar imagen (PNG, JPG, GIF, WebP)"
+        aria-label="Adjuntar imagen"
       >
-        📎
-      </Button>
-      <InputWithButton
+        <Icon name="clip" size={18} />
+      </button>
+      <input
+        className="chat-input__field"
         value={text}
-        onChange={setText}
-        placeholder="Escribe un mensaje..."
-        buttonLabel="Enviar"
-        variant="primary"
-        onSubmit={submit}
-        submitOnEnter
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && submit()}
+        placeholder={`Escribe un mensaje en #${slugify(channelName)}...`}
       />
+      <button
+        className={`chat-input__send ${ready ? 'chat-input__send--ready' : ''}`}
+        onClick={submit}
+        disabled={!ready}
+      >
+        Enviar
+      </button>
     </div>
   );
 }

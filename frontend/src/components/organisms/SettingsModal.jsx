@@ -1,19 +1,20 @@
-import { Button } from '../atoms';
-import { InputWithButton } from '../molecules';
+import { Button, Icon } from '../atoms';
+import { InputWithButton, DeviceSelect, LevelMeter, SliderRow } from '../molecules';
 
 /**
- * Panel de configuración de usuario (modal):
- * nombre de usuario + foto de perfil (imagen estática o GIF).
+ * Ajustes (modal): perfil (nombre + foto) y audio (micrófono, niveles y volúmenes).
  */
-export function SettingsModal({ open, onClose, username, onUsernameChange, onSaveUsername, avatar, onPickAvatar }) {
+export function SettingsModal({ open, onClose, username, onUsernameChange, onSaveUsername, avatar, onPickAvatar, call }) {
   if (!open) return null;
 
   return (
     <div className="settings-modal__overlay" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal__header">
-          <h3>⚙️ Configuración de usuario</h3>
-          <Button variant="ghost" size="sm" onClick={onClose} title="Cerrar">✕</Button>
+          <h3>Perfil y audio</h3>
+          <Button variant="ghost" size="sm" onClick={onClose} title="Cerrar">
+            <Icon name="close" size={14} />
+          </Button>
         </div>
 
         <div className="settings-modal__avatar-row">
@@ -26,7 +27,7 @@ export function SettingsModal({ open, onClose, username, onUsernameChange, onSav
           )}
           <div className="settings-modal__avatar-info">
             <Button variant="secondary" size="sm" onClick={onPickAvatar}>
-              🖼️ Cambiar foto
+              Cambiar foto
             </Button>
             <p className="settings-modal__hint">
               PNG, JPG, WebP o GIF animado. Se optimiza a WebP automáticamente y se comparte con tus peers.
@@ -39,12 +40,39 @@ export function SettingsModal({ open, onClose, username, onUsernameChange, onSav
             value={username}
             onChange={onUsernameChange}
             placeholder="Tu nombre de usuario"
-            buttonLabel="Guardar Nombre"
+            buttonLabel="Guardar nombre"
             onSubmit={onSaveUsername}
-            variant="success"
+            variant="primary"
             submitOnEnter
           />
         </div>
+
+        {call && (
+          <>
+            <h4 className="settings-modal__section-title">Audio</h4>
+            <DeviceSelect
+              devices={call.devices}
+              value={call.selectedId}
+              onChange={call.changeDevice}
+              onRefresh={call.refreshDevices}
+            />
+            <LevelMeter ref={call.meterRef} />
+            <SliderRow
+              id="mic-gain"
+              label="🎙️ Tu volumen"
+              value={call.micGain}
+              onChange={call.setMicGain}
+              accent="var(--color-success-bright)"
+            />
+            <SliderRow
+              id="playback-gain"
+              label="🔊 Voz recibida"
+              value={call.playbackGain}
+              onChange={call.setPlaybackGain}
+              accent="var(--color-info-soft)"
+            />
+          </>
+        )}
       </div>
     </div>
   );

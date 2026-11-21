@@ -1,12 +1,15 @@
-import { Button } from '../atoms';
-import { DeviceSelect, LevelMeter, SliderRow, VoiceStatus } from '../molecules';
+import { Icon, Equalizer } from '../atoms';
 import { useVoiceNotifications } from '../../hooks/useVoiceNotifications';
 import voiceJoinSound from '../../assets/sounds/voice-join.mp3';
 import voiceLeaveSound from '../../assets/sounds/voice-leave.mp3';
 
-export function VoicePanel({ call }) {
-  useVoiceNotifications();
+/**
+ * Dock de voz fijo al pie del sidebar.
+ * speakerName: nombre de quien habla (si se conoce) para el subtítulo.
+ */
+export function VoicePanel({ call, video, screen, channelName, speakerName, onOpenSettings }) {
   const { active, muted, remoteSpeaking, join, leave, toggleMute } = call;
+  useVoiceNotifications();
 
   const playLocalSound = (source) => {
     try {
@@ -27,70 +30,66 @@ export function VoicePanel({ call }) {
     leave();
   };
 
-  const classes = [
-    'voice-panel',
-    active && 'voice-panel--active',
-    remoteSpeaking && 'voice-panel--speaking',
-  ]
-    .filter(Boolean)
-    .join(' ');
+  let sub;
+  if (!active) sub = 'Únete para hablar con el canal';
+  else if (remoteSpeaking) sub = `${channelName} · ${speakerName ? `${speakerName} hablando` : 'alguien habla'}`;
+  else sub = `${channelName} · ${muted ? 'micrófono silenciado' : 'micrófono abierto'}`;
 
   return (
-    <section className={classes}>
-      <div className="voice-header">
-        <div className="voice-info">
-          <strong className="voice-info__title">📞 Canal de Voz en Vivo</strong>
-          <VoiceStatus active={active} muted={muted} remoteSpeaking={remoteSpeaking} />
-        </div>
-
-        <div className="voice-actions">
-          {!active ? (
-            <Button variant="success" className="voice-btn-join" onClick={handleJoin}>
-              🎙️ Unirse a Voz
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant={muted ? 'danger' : 'secondary'}
-                className="voice-btn-mute"
-                onClick={toggleMute}
-              >
-                {muted ? '🔇 Desmutear' : '🎙️ Mutear'}
-              </Button>
-              <Button variant="danger" className="voice-btn-leave" onClick={handleLeave}>
-                Salir
-              </Button>
-            </>
-          )}
+    <section className={`voice-dock ${active ? 'voice-dock--active' : ''}`}>
+      <div className="voice-dock__info">
+        <span className="voice-dock__icon">
+          {active ? <Equalizer idle={!remoteSpeaking} /> : <Icon name="mic" size={18} />}
+        </span>
+        <div className="voice-dock__text">
+          <div className="voice-dock__title">{active ? 'Voz conectada' : 'Voz desconectada'}</div>
+          <div className="voice-dock__sub" title={sub}>{sub}</div>
         </div>
       </div>
 
-      <details className="voice-config">
-        <summary className="voice-config__summary">⚙️ Configuración de micrófono y volúmenes</summary>
-        <div className="voice-config__body">
-          <DeviceSelect
-            devices={call.devices}
-            value={call.selectedId}
-            onChange={call.changeDevice}
-            onRefresh={call.refreshDevices}
-          />
-          <LevelMeter ref={call.meterRef} />
-          <SliderRow
-            id="mic-gain"
-            label="🎙️ Tu volumen"
-            value={call.micGain}
-            onChange={call.setMicGain}
-            accent="var(--color-success-bright)"
-          />
-          <SliderRow
-            id="playback-gain"
-            label="🔊 Voz recibida"
-            value={call.playbackGain}
-            onChange={call.setPlaybackGain}
-            accent="var(--color-info-soft)"
-          />
-        </div>
-      </details>
+      <div className="voice-dock__actions">
+        <button
+          className={`icon-btn ${active && muted ? 'icon-btn--danger' : ''}`}
+          onClick={toggleMute}
+          disabled={!active}
+          title={muted ? 'Activar micrófono' : 'Silenciar micrófono'}
+          aria-pressed={muted}
+        >
+          <Icon name={muted ? 'mic-off' : 'mic'} size={18} />
+        </button>
+        {video && (
+          <button
+            className={`icon-btn ${video.on ? 'icon-btn--danger' : ''}`}
+            onClick={video.toggle}
+            title={video.on ? 'Apagar cámara' : 'Encender cámara'}
+            aria-pressed={video.on}
+          >
+            {video.on ? '📷' : '🎥'}
+          </button>
+        )}
+        {screen && (
+          <button
+            className={`icon-btn ${screen.on ? 'icon-btn--danger' : ''}`}
+            onClick={screen.toggle}
+            title={screen.on ? 'Dejar de compartir pantalla' : 'Compartir pantalla'}
+            aria-pressed={screen.on}
+          >
+            <Icon name="screen" size={18} />
+          </button>
+        )}
+        <button className="icon-btn" onClick={onOpenSettings} title="Ajustes de audio y perfil">
+          <Icon name="gear" size={18} />
+        </button>
+        {active ? (
+          <button className="voice-dock__main voice-dock__main--leave" onClick={handleLeave}>
+            Salir
+          </button>
+        ) : (
+          <button className="voice-dock__main voice-dock__main--join" onClick={handleJoin}>
+            Unirse
+          </button>
+        )}
+      </div>
     </section>
   );
 }

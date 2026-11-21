@@ -58,8 +58,20 @@ export function LoadCustomLayout() {
   return window['go']['main']['App']['LoadCustomLayout']();
 }
 
+export function LoadCustomVideoCSS() {
+  return window['go']['main']['App']['LoadCustomVideoCSS']();
+}
+
+export function NotifyDesktop(arg1, arg2) {
+  return window['go']['main']['App']['NotifyDesktop'](arg1, arg2);
+}
+
 export function OpenModsFolder() {
   return window['go']['main']['App']['OpenModsFolder']();
+}
+
+export function ReactToMessage(arg1, arg2) {
+  return window['go']['main']['App']['ReactToMessage'](arg1, arg2);
 }
 
 export function SendAudio(arg1) {
@@ -70,8 +82,12 @@ export function SendImageFromDialog() {
   return window['go']['main']['App']['SendImageFromDialog']();
 }
 
-export function SendMessage(arg1) {
-  return window['go']['main']['App']['SendMessage'](arg1);
+export function SendMessage(arg1, arg2) {
+  return window['go']['main']['App']['SendMessage'](arg1, arg2);
+}
+
+export function SendVideo(arg1, arg2) {
+  return window['go']['main']['App']['SendVideo'](arg1, arg2);
 }
 
 export function SetAudioPrefs(arg1, arg2) {
@@ -82,12 +98,20 @@ export function SetAvatarFromDialog() {
   return window['go']['main']['App']['SetAvatarFromDialog']();
 }
 
+export function SetCallState(arg1) {
+  return window['go']['main']['App']['SetCallState'](arg1);
+}
+
 export function SetChannelIconFromDialog() {
   return window['go']['main']['App']['SetChannelIconFromDialog']();
 }
 
 export function SetChannelInfo(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetChannelInfo'](arg1, arg2, arg3);
+}
+
+export function SetUnread(arg1) {
+  return window['go']['main']['App']['SetUnread'](arg1);
 }
 
 export function SetUsername(arg1) {

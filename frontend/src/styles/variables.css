@@ -1,52 +1,60 @@
 /* Tokens de diseño. Los mods pueden sobrescribirlos desde :root */
 :root {
   /* Tipografía */
-  --font-sans: ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-sans: 'Plus Jakarta Sans', 'Figtree', ui-rounded, 'SF Pro Rounded', 'Nunito', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 
   /* Fondo y texto */
-  --color-bg: #12111a;
-  --color-text: #ece9f7;
-  --color-text-muted: #9a96b5;
-  --color-text-label: #b4b0cc;
-  --color-text-faint: #6f6b8a;
+  --color-bg: #060b11;
+  --color-text: #eef2f7;
+  --color-text-muted: #7d8b9e;
+  --color-text-label: #a6b2c2;
+  --color-text-faint: #566376;
 
   /* Superficies */
-  --color-surface: #1b1a27;
-  --color-surface-alt: #171622;
-  --color-surface-deep: #100f18;
-  --color-surface-card: #222135;
-  --color-surface-chat: #161521;
-  --color-surface-voice-active: #14262b;
+  --color-surface: #0b121a;
+  --color-surface-alt: #0f1822;
+  --color-surface-deep: #070c12;
+  --color-surface-card: #121c27;
+  --color-surface-chat: #0a1017;
+  --color-surface-bubble: #111b26;
+  --color-surface-hover: rgba(255, 255, 255, 0.04);
+  --color-surface-voice-active: #0e2420;
 
   /* Bordes */
-  --color-border: #2c2a40;
-  --color-border-strong: #3b3956;
-  --color-border-chat: #26243a;
+  --color-border: #172230;
+  --color-border-strong: #243244;
+  --color-border-chat: #131d28;
 
   /* Acciones */
-  --color-neutral: #2b2a42;
-  --color-secondary: #34324d;
-  --color-primary: #6d5df0;
-  --color-primary-soft: #c4bcff;
-  --color-info: #4a68e8;
-  --color-info-soft: #8fb0ff;
-  --color-danger: #d6455d;
-  --color-danger-dark: #b93349;
+  --color-neutral: #162130;
+  --color-secondary: #1b2a3b;
+  --color-primary: #ff7a59;
+  --color-primary-soft: #ffa58c;
+  --color-info: #2f8fb0;
+  --color-info-soft: #45c4e0;
+  --color-danger: #e0485a;
+  --color-danger-dark: #c13a4b;
   --color-warning: #f2b44c;
 
   /* "En vivo" */
-  --color-success: #2bb38a;
-  --color-success-bright: #4fe0b0;
-  --color-success-soft: #9af2d4;
+  --color-success: #2fbf8a;
+  --color-success-bright: #3ddc97;
+  --color-success-soft: #8fe9c4;
 
-  --color-accent: #a99cff;
+  /* Acento de marca */
+  --color-accent: #45c4e0;
+  --color-accent-soft: rgba(69, 196, 224, 0.12);
+  --color-active-row: #12303a;
+  --color-active-row-border: rgba(69, 196, 224, 0.22);
+  --brand-gradient: linear-gradient(135deg, #ff8f4c 0%, #ff5a6e 100%);
+  --color-self: #ff7a59;
 
   /* Forma */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
 
   /* Espaciado */
   --space-1: 4px;
@@ -56,5 +64,6 @@
   --space-5: 20px;
 
   /* Layout */
-  --sidebar-width: 350px;
+  --sidebar-width: 292px;
+  --chat-max-width: 800px;
 }

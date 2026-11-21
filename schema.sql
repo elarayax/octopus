@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS mensaje (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     contenido TEXT NOT NULL,
     tipo VARCHAR(10) NOT NULL DEFAULT 'text',
+    uid VARCHAR(32),
+    responde_a VARCHAR(32),
     id_canal INTEGER NOT NULL,
     id_usuario VARCHAR(255) NOT NULL,
     creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -79,6 +81,16 @@ CREATE TABLE IF NOT EXISTS miembro (
     nombre VARCHAR(255) NOT NULL,
     avatar TEXT,
     ultima_vez DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ==========================================
+--  REACCIONES (emoji por mensaje y usuario)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS reaccion (
+    msg_uid VARCHAR(32) NOT NULL,
+    id_usuario VARCHAR(255) NOT NULL,
+    emoji VARCHAR(32) NOT NULL,
+    PRIMARY KEY (msg_uid, id_usuario, emoji)
 );
 
 -- ==========================================

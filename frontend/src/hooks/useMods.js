@@ -1,19 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
-import { LoadCustomCSS, LoadCustomLayout, OpenModsFolder } from '../../wailsjs/go/main/App';
+import {
+  LoadCustomCSS,
+  LoadCustomLayout,
+  LoadCustomVideoCSS,
+  OpenModsFolder,
+} from '../../wailsjs/go/main/App';
+
+const DEFAULT_VIDEO = { mode: 'grid', shape: 'rounded', mirror: true, showNames: true };
 
 const DEFAULT_LAYOUT = {
   themeName: 'Default',
   sidebarPosition: 'left',
   panels: { voice: true, connection: true, nodeInfo: true },
+  video: DEFAULT_VIDEO,
 };
 
-const STYLE_TAG_ID = 'mod-theme-style';
-
-function applyCSS(cssText) {
-  let tag = document.getElementById(STYLE_TAG_ID);
+// Un <style> por mod (tema y videollamada), identificado por id
+function applyCSS(id, cssText) {
+  let tag = document.getElementById(id);
   if (!tag) {
     tag = document.createElement('style');
-    tag.id = STYLE_TAG_ID;
+    tag.id = id;
     document.head.appendChild(tag);
   }
   tag.textContent = cssText;
@@ -24,10 +31,20 @@ export function useMods() {
 
   const reload = useCallback(async () => {
     try {
-      const [css, modLayout] = await Promise.all([LoadCustomCSS(), LoadCustomLayout()]);
-      if (css !== undefined) applyCSS(css);
+      const [css, videoCss, modLayout] = await Promise.all([
+        LoadCustomCSS(),
+        LoadCustomVideoCSS(),
+        LoadCustomLayout(),
+      ]);
+      if (css !== undefined) applyCSS('mod-theme-style', css);
+      if (videoCss !== undefined) applyCSS('mod-video-style', videoCss);
       if (modLayout && modLayout.panels) {
-        setLayout({ ...DEFAULT_LAYOUT, ...modLayout });
+        setLayout({
+          ...DEFAULT_LAYOUT,
+          ...modLayout,
+          // lo que el mod no defina de video se queda con el valor por defecto
+          video: { ...DEFAULT_VIDEO, ...(modLayout.video || {}) },
+        });
       }
     } catch (err) {
       console.error('Error cargando mod:', err);

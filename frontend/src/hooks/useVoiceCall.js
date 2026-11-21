@@ -1,4 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { SetCallState } from '../../wailsjs/go/main/App';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { useAudioPrefs } from './useAudioPrefs';
 import { useAudioDevices } from './useAudioDevices';
 import { useAudioPlayback } from './useAudioPlayback';
@@ -14,6 +16,24 @@ export function useVoiceCall({ notify }) {
   const [muted, setMuted] = useState(false);
   const mic = useMicCapture({ gain: prefs.micGain, muted });
 
+  // Nombres de los demás que están en la llamada (llegan por el evento call_state).
+  // Quien se desconecta del todo se filtra en la UI con la lista de usuarios online.
+  const [members, setMembers] = useState({});
+  useEffect(
+    () =>
+      EventsOn('call_state', (name, inCall) => {
+        if (!name) return;
+        setMembers((prev) => {
+          if (!!prev[name] === !!inCall) return prev;
+          const next = { ...prev };
+          if (inCall) next[name] = true;
+          else delete next[name];
+          return next;
+        });
+      }),
+    []
+  );
+
   const join = useCallback(async () => {
     try {
       await mic.start(devices.selectedId);
@@ -22,6 +42,7 @@ export function useVoiceCall({ notify }) {
       devices.refresh(); // tras el permiso aparecen los nombres de los micrófonos
       setMuted(false);
       setActive(true);
+      SetCallState(true);
     } catch (err) {
       notify(`Error activando micrófono: ${err.message}`, 'error');
     }
@@ -31,6 +52,7 @@ export function useVoiceCall({ notify }) {
     mic.stop();
     SetVoicePresence(false).catch((err) => console.error('SetVoicePresence:', err));
     setActive(false);
+    SetCallState(false);
   }, [mic]);
 
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
@@ -51,6 +73,7 @@ export function useVoiceCall({ notify }) {
   return {
     active,
     muted,
+    members: Object.keys(members),
     remoteSpeaking: playback.remoteSpeaking,
     devices: devices.devices,
     selectedId: devices.selectedId,

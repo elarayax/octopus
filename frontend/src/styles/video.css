@@ -110,7 +110,7 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: rgba(10, 6, 20, 0.6);
+  background: rgba(0, 0, 0, 0.6);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -174,19 +174,6 @@
   transform: none !important; /* sin espejo */
 }
 
-.screen-main__live {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 2;
-  padding: 3px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #fff;
-  background: #ed4245;
-  border-radius: 6px;
-}
 .screen-main__close {
   position: absolute;
   top: 10px;
@@ -276,19 +263,6 @@
 .screen-thumb img,
 .screen-thumb video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .screen-thumb:hover { outline: 2px solid var(--color-accent, #45c4e0); }
-.screen-card__live {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 2;
-  padding: 2px 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #fff;
-  background: #ed4245;
-  border-radius: 4px;
-}
 
 /* ---------- Modo ampliado: cubre toda el área del chat ---------- */
 .video-stage[data-theater="true"] {

@@ -68,11 +68,9 @@ func (a *App) LoadCustomVideoCSS() string {
 	cssPath := filepath.Join(modsDir, "video.css")
 	data, err := os.ReadFile(cssPath)
 	if err != nil {
-		// Si no existe, creamos un archivo de ejemplo para editar
-		defaultCSS := `/* Mod de videollamada: edita y pulsa "recargar mods" */
-.video-tile {
-    border: 2px solid #5865f2;
-}
+		// Si no existe, creamos un archivo vacío para editar (la cámara se ve normal)
+		defaultCSS := `/* Mod de videollamada: sin estilos, la cámara se ve normal.
+   Agrega aquí tus reglas (.video-tile { ... }) y pulsa "recargar mods". */
 `
 		_ = os.WriteFile(cssPath, []byte(defaultCSS), 0644)
 		return defaultCSS

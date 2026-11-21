@@ -81,8 +81,6 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
     return () => window.removeEventListener('keydown', onKey);
   }, [theater]);
 
-  // (Se removió el useEffect que abría la transmisión en grande automáticamente al empezar a compartir)
-
   if (!focused && tiles.length === 0) return null;
 
   const toggleFullscreen = (e) => {
@@ -155,7 +153,6 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
             onKeyDown={(e) => e.key === 'Enter' && openStream(s.key)}
           >
             <Media item={s} />
-            <span className="screen-card__live">● EN VIVO</span>
             {showNames && (
               <span className="screen-card__name">{s.self ? `${s.name} · tu pantalla` : s.name}</span>
             )}
@@ -195,7 +192,6 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
       <div className="screen-main" ref={mainRef}>
         <Media item={focused} />
 
-        <span className="screen-main__live">● EN VIVO</span>
         <button className="screen-main__close" onClick={() => setTheater(false)} title="Cerrar (Esc)">
           ✕
         </button>
@@ -233,7 +229,6 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
               title={`Ver la pantalla de ${s.name}`}
             >
               <Media item={s} />
-              <span className="screen-card__live">● EN VIVO</span>
               {showNames && <span className="screen-card__name">{s.name}</span>}
             </button>
           ))}

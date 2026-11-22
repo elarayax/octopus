@@ -321,23 +321,41 @@ canal.
 ```go
 dc.OnMessage(func(msg webrtc.DataChannelMessage) {
     var pkt Packet
-    if err := json.Unmarshal(msg.Data, &pkt); err == nil {
-        a.handlePacket(remoteID, pkt)
+    if err := json.Unmarshal(msg.Data, &pkt); err != nil {
+        return
+    }
+    a.handlePacket(remoteID, pkt)
 
-        // Retransmitir a los demás peers por el canal adecuado
-        a.mu.Lock()
-        for id, session := range a.peers {
-            if id == remoteID { continue }
-            ch := session.dc
-            if pkt.Type == "audio" && session.dca != nil &&
-               session.dca.ReadyState() == webrtc.DataChannelStateOpen {
+    // Retransmitir a los demás peers por el canal adecuado
+    a.mu.Lock()
+    targets := make([]*PeerSession, 0, len(a.peers))
+    for id, session := range a.peers {
+        if id == remoteID { continue }
+        targets = append(targets, session)
+    }
+    a.mu.Unlock()   // ← se envía FUERA del lock
+
+    data := string(msg.Data)
+    for _, session := range targets {
+        ch := session.dc
+        switch pkt.Type {
+        case "audio":
+            if session.dca != nil && session.dca.ReadyState() == webrtc.DataChannelStateOpen {
                 ch = session.dca
             }
-            if ch != nil && ch.ReadyState() == webrtc.DataChannelStateOpen {
-                ch.SendText(string(msg.Data))
+        case "video":
+            ch = nil
+            if session.dcv != nil && session.dcv.ReadyState() == webrtc.DataChannelStateOpen {
+                ch = session.dcv
             }
         }
-        a.mu.Unlock()
+        if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
+            continue
+        }
+        // Si el canal va atrasado, descartar (ver bug #9)
+        if pkt.Type == "audio" && ch.BufferedAmount() > maxAudioBuffered { continue }
+        if pkt.Type == "video" && ch.BufferedAmount() > maxVideoBuffered { continue }
+        ch.SendText(data)
     }
 })
 ```
@@ -348,6 +366,16 @@ peer se procesa localmente **y** se reenvía al resto.
 **Por qué el audio va por `dca`**: si se reenviará por el canal fiable, la
 voz arrastraría la latencia de las retransmisiones. Se enruta al canal no
 fiable.
+
+**Por qué el lock se suelta antes de enviar**: `SendText` es I/O. Con el lock
+tomado, cada mensaje reenviado bloqueaba `SendAudio`/`SendVideo` (y el resto
+de la app). Como el host es el que más reenvía, era el que más retraso
+acumulaba. Ver
+[bug #9](11-bugs-corregidos.md#9-la-voz-llega-tarde-o-no-se-oye-head-of-line-blocking).
+
+**Por qué se descarta audio/video en el relay**: un peer lento no puede
+convertirse en una cola infinita que retrase a todos los demás. Se aplica el
+mismo criterio que en el envío local.
 
 **Por qué se reenvía el `msg.Data` crudo y no el `pkt` re-marshaleado**:
 ahorra CPU (no hay que serializar de nuevo) y preserva exactamente lo recibido.

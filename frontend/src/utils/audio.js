@@ -1,9 +1,92 @@
 export const SAMPLE_RATE = 16000;
 export const CHUNK_SIZE = 512; // 32 ms @ 16 kHz
 
+/**
+ * Crea el AudioContext a 16 kHz si el navegador lo permite.
+ *
+ * Por qué el try/catch: la spec permite lanzar NotSupportedError si la tasa
+ * pedida no existe en el hardware. WKWebView (macOS) además puede ignorarla
+ * en silencio y quedarse con 44.1/48 kHz. Por eso el resto del código nunca
+ * asume 16 kHz: siempre mira `ctx.sampleRate` y remuestrea si hace falta.
+ */
 export function createAudioContext() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
-  return new Ctx({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' });
+  try {
+    return new Ctx({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' });
+  } catch (err) {
+    console.warn('AudioContext a 16 kHz no soportado; usando la tasa del sistema:', err);
+    return new Ctx({ latencyHint: 'interactive' });
+  }
+}
+
+/**
+ * Crea un remuestreador con estado de `fromRate` a 16 kHz.
+ *
+ * Devuelve una función que recibe un bloque Float32 y devuelve otro a 16 kHz.
+ *
+ * Por qué existe: si el AudioContext corre a 48 kHz (macOS suele ignorar la
+ * petición de 16 kHz) y enviamos sus bloques como si ya fueran de 16 kHz, el
+ * receptor los reproduce 3× más lentos y la cola de reproducción crece 3×
+ * más rápido de lo que se vacía. Resultado: voz grave, entrecortada y con
+ * retraso creciente. Ese era el síntoma del micrófono "que no funciona".
+ *
+ * Por qué con estado y no bloque a bloque: al dividir 512 muestras entre 3
+ * sobran 2; si se tiran en cada bloque, la tasa efectiva baja ~0.4 % y el
+ * receptor acaba con micro-cortes cada pocos segundos. El remuestreador
+ * conserva la posición fraccionaria y la suma parcial entre bloques, así que
+ * la tasa queda exacta (y es el mismo algoritmo que el AudioWorklet).
+ *
+ * Por qué un filtro de caja (media del periodo) y no tomar 1 de cada N: al
+ * bajar de 48 a 16 kHz hay que eliminar antes las frecuencias > 8 kHz, o se
+ * pliegan sobre la voz (aliasing). La media de las muestras del periodo es
+ * un paso-bajo barato y suficiente para voz.
+ */
+export function createResampler(fromRate = SAMPLE_RATE) {
+  // Muestras de salida que corresponden a cada muestra de entrada.
+  const step = SAMPLE_RATE / fromRate;
+  let acc = 0; // posición fraccionaria dentro del periodo de salida
+  let sum = 0; // suma de las muestras de entrada del periodo
+  let count = 0; // cuántas muestras de entrada lleva el periodo
+
+  return function resample(block) {
+    if (!block || block.length === 0) return new Float32Array(0);
+    if (!fromRate || fromRate === SAMPLE_RATE) return block;
+
+    // Cota superior: como máximo una salida por muestra de entrada + la que
+    // pueda completarse al principio por el estado pendiente.
+    const out = new Float32Array(Math.ceil(block.length * step) + 1);
+    let n = 0;
+
+    // Contexto por debajo de 16 kHz (raro): repetir cada muestra las veces
+    // necesarias. Sin filtro: se está añadiendo información, no quitando.
+    if (step > 1) {
+      for (let i = 0; i < block.length; i++) {
+        acc += step;
+        while (acc >= 1) {
+          acc -= 1;
+          out[n++] = block[i];
+        }
+      }
+      return out.subarray(0, n);
+    }
+
+    // Descendente: media del periodo (paso-bajo antialiasing).
+    for (let i = 0; i < block.length; i++) {
+      sum += block[i];
+      count++;
+      acc += step;
+
+      // Cada periodo completo de salida → media de las muestras de entrada.
+      if (acc >= 1) {
+        acc -= 1;
+        out[n++] = count > 0 ? sum / count : 0;
+        sum = 0;
+        count = 0;
+      }
+    }
+
+    return out.subarray(0, n);
+  };
 }
 
 /** Float32 [-1, 1] -> Int16 aplicando ganancia con clipping */

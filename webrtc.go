@@ -252,33 +252,57 @@ func (a *App) setupDataChannel(remoteID string, dc *webrtc.DataChannel) {
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		var pkt Packet
-		if err := json.Unmarshal(msg.Data, &pkt); err == nil {
-			a.handlePacket(remoteID, pkt)
+		if err := json.Unmarshal(msg.Data, &pkt); err != nil {
+			return
+		}
+		a.handlePacket(remoteID, pkt)
 
-			// Retransmitir a los demás peers por el canal adecuado
-			a.mu.Lock()
-			for id, session := range a.peers {
-				if id == remoteID {
-					continue
+		// Retransmitir a los demás peers por el canal adecuado (topología
+		// estrella). Copiamos la lista bajo el lock y enviamos FUERA de él:
+		// SendText puede tardar y, con el lock tomado, bloquearía SendAudio,
+		// SendVideo y todo lo demás (la voz se acumularía detrás del video).
+		a.mu.Lock()
+		targets := make([]*PeerSession, 0, len(a.peers))
+		for id, session := range a.peers {
+			if id == remoteID {
+				continue
+			}
+			targets = append(targets, session)
+		}
+		a.mu.Unlock()
+
+		data := string(msg.Data)
+		for _, session := range targets {
+			ch := session.dc
+			switch pkt.Type {
+			case "audio":
+				if session.dca != nil && session.dca.ReadyState() == webrtc.DataChannelStateOpen {
+					ch = session.dca
 				}
-				ch := session.dc
-				switch pkt.Type {
-				case "audio":
-					if session.dca != nil && session.dca.ReadyState() == webrtc.DataChannelStateOpen {
-						ch = session.dca
-					}
-				case "video":
-					// El video solo viaja por su canal; nunca cae al chat (lo saturaría)
-					ch = nil
-					if session.dcv != nil && session.dcv.ReadyState() == webrtc.DataChannelStateOpen {
-						ch = session.dcv
-					}
-				}
-				if ch != nil && ch.ReadyState() == webrtc.DataChannelStateOpen {
-					_ = ch.SendText(string(msg.Data))
+			case "video":
+				// El video solo viaja por su canal; nunca cae al chat (lo saturaría)
+				ch = nil
+				if session.dcv != nil && session.dcv.ReadyState() == webrtc.DataChannelStateOpen {
+					ch = session.dcv
 				}
 			}
-			a.mu.Unlock()
+			if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
+				continue
+			}
+			// Mismo criterio que en el envío local: si el canal va atrasado,
+			// descartar. El host retransmite a varios peers y es justo donde
+			// más se acumula el retraso si no se filtra.
+			switch pkt.Type {
+			case "audio":
+				if ch.BufferedAmount() > maxAudioBuffered {
+					continue
+				}
+			case "video":
+				if ch.BufferedAmount() > maxVideoBuffered {
+					continue
+				}
+			}
+			_ = ch.SendText(data)
 		}
 	})
 

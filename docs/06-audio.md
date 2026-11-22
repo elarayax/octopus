@@ -70,9 +70,14 @@ for _, s := range sessions {
     if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
         ch = s.dc      // respaldo: el canal de chat
     }
-    if ch != nil && ch.ReadyState() == webrtc.DataChannelStateOpen {
-        ch.SendText(str)
+    if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
+        continue
     }
+    // Backpressure: si el canal va atrasado, el chunk ya es viejo
+    if ch.BufferedAmount() > maxAudioBuffered {
+        continue
+    }
+    ch.SendText(str)
 }
 ```
 
@@ -97,12 +102,93 @@ El frontend lo decodifica y lo reproduce
 todavía (o se perdió), el audio se envía por el canal fiable para que no se
 pierda. Es peor en latencia, pero mejor que perderlo.
 
+**Ojo con el fallback cuando hay congestión**: si el canal de audio está
+abierto pero va atrasado, **no** se cae al canal de chat. Meterse en una cola
+todavía más cargada (la del chat, que es fiable y ordenada) empeoraría el
+retraso. En ese caso se descarta el chunk.
+
 **Por qué `Packet` con `Sender`**: el frontend necesita saber a quién pertenece
 la voz para mostrar un indicador de "hablando".
 
 **Por qué el return es "OK"/"No peers"/"Error"**: la UI lo muestra como
 notificación. Es un string porque Wails_bindings serializan strings
 simplemente.
+
+## Backpressure: descartar en vez de acumular
+
+```go
+const maxAudioBuffered = 8 * 1024 // ~260 ms a 31 KB/s
+```
+
+**El problema que resuelve**: los envíos de pion/WebRTC **no bloquean**. Cada
+`SendText` empuja el mensaje a una cola SCTP que no tiene límite. Si el enlace
+va más lento que el micrófono, la cola crece y crece: el receptor recibe el
+audio segundos tarde, lo descarta por viejo y solo se oyen fragmentos. El
+síntoma típico es "no se me escucha" cuando en realidad el audio sí sale, pero
+llega tarde.
+
+**Por qué `BufferedAmount()`**: es lo que queda por confirmar en ese canal
+(pendiente + en vuelo). Si supera ~260 ms de audio, el chunk nuevo ya no sirve
+para conversar. Perder 32 ms de voz es preferible a arrastrar medio segundo de
+retraso.
+
+**Por qué 8 KB y no 2 KB**: `BufferedAmount` incluye lo enviado pero aún no
+confirmado, así que en un enlace con RTT alto hay un suelo de `tasa × RTT`
+(≈3 KB con 100 ms). 8 KB deja margen para ese suelo sin permitir que la voz se
+acumule.
+
+**El mismo criterio se aplica al video** (`video.go`, `maxVideoBuffered`),
+porque audio y video comparten la misma asociación SCTP: un frame grande
+encolado delante de la voz la retrasa igual que si fuera audio. Ver
+[bug #9](11-bugs-corregidos.md#9-la-voz-llega-tarde-o-no-se-oye-head-of-line-blocking).
+
+## El muestreo: nunca asumir 16 kHz
+
+```
+AudioContext (puede correr a 48 kHz aunque se pidan 16)
+    ↓ bloque de N muestras a ctx.sampleRate
+resample(bloque)          ← createResampler(ctx.sampleRate)
+    ↓ 512 muestras exactas a 16 kHz
+SendAudio(base64)
+```
+
+**Por qué no basta con `new AudioContext({ sampleRate: 16000 })`**: la spec
+permite ignorarlo o lanzar `NotSupportedError`. WKWebView (macOS) suele
+quedarse con la tasa del hardware (44.1/48 kHz). Si esos bloques se envían
+como si ya fueran de 16 kHz, el receptor los reproduce 3× más lentos y su cola
+crece 3× más rápido de lo que se vacía → voz grave, entrecortada y con retraso
+creciente.
+
+**Por qué un filtro de caja**: cada muestra de salida es la media de las
+muestras de entrada de su periodo. Al bajar de 48 a 16 kHz hay que quitar
+antes las frecuencias > 8 kHz, o se pliegan sobre la voz (aliasing). La media
+es un paso-bajo barato y suficiente para voz.
+
+**Por qué se acumula hasta 512 muestras**: a 48 kHz, un bloque de 512 muestras
+de entrada solo produce ~170 de salida. Acumularlas y enviar bloques de 512
+(32 ms) mantiene un ritmo constante de ~31 envíos/s, independiente de la tasa
+del contexto.
+
+## El AudioWorklet del micrófono
+
+`frontend/public/mic-processor.js` corre en el hilo de audio (no en el de
+React) y hace el remuestreo y el troceado. Si `addModule` falla, se cae al
+`ScriptProcessor` (obsoleto) **aplicando el mismo remuestreo en JS**: el
+resultado tiene que ser idéntico, o el bug del muestreo vuelve.
+
+## El búfer de reproducción (jitter buffer)
+
+`useAudioPlayback` programa cada bloque con `BufferSource.start(nextTime)`:
+
+- `nextTime` empieza en `now + 30 ms` (margen para el primero).
+- Si `nextTime` se quedó atrás (pérdida o silencio), se reengancha a
+  `now + 30 ms`.
+- Si se adelantó más de 150 ms (ráfaga acumulada), se **descartan las fuentes
+  aún no reproducidas** y se salta al presente. El bloque que está sonando no
+  se corta (cortarlo produce un chasquido). Sin descartar lo pendiente, el
+  bloque nuevo sonaría encima del anterior (eco) y el retraso seguiría creciendo.
+- El `AudioBuffer` se declara siempre a 16 kHz: el navegador lo remuestrea a
+  la tasa real del contexto al reproducirlo.
 
 ## Detalles que conviene saber
 
@@ -128,7 +214,9 @@ ch := s.dca
 if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
     ch = s.dc
 }
-if ch != nil && ch.ReadyState() == webrtc.DataChannelStateOpen {
+if ch == nil || ch.ReadyState() != webrtc.DataChannelStateOpen {
+    continue
+}
 ```
 
 La primera comprobación decide **cuál** canal usar; la segunda verifica que
@@ -147,3 +235,8 @@ a.mu.Unlock()
 El envío es I/O de red. Si se hiciera con el lock tomado, un peer lento
 bloquearía toda la app (y podría hacer deadlock si durante el envío otro
 hilo quisiera el mismo lock).
+
+**El mismo patrón se aplicó al relay del host** (`setupDataChannel`): antes
+copiaba los peers y **enviaba dentro** del lock, así que cada mensaje
+reenviado bloqueaba `SendAudio` y `SendVideo`. Ahora copia la lista, suelta
+el lock y envía fuera.

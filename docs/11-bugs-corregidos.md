@@ -472,6 +472,144 @@ vwebp animated.webp
 
 
 
+## 9. La voz llega tarde o no se oye (head-of-line blocking)
+
+### Síntoma
+
+En una llamada de voz:
+
+- Quien levanta el servidor **no se le oye** (o se le oye entrecortado y grave).
+- El resto **oye al host con retraso**, y el host oye a los demás con retraso.
+- La cámara y el uso compartido de pantalla funcionan sin problemas.
+
+### Primer descarte: no son pistas de WebRTC
+
+El audio de esta app **no** viaja como pista de media (`addTrack`). Es PCM16
+en base64 dentro de un `Packet` JSON por un DataChannel:
+
+```
+micrófono → AudioContext → base64 → SendAudio()
+    → DataChannel "audio" (no fiable, sin orden)
+    → handlePacket() → EventsEmit("receive_audio") → useAudioPlayback
+```
+
+Como el video usa exactamente el mismo transporte (otro DataChannel) y sí
+funciona, el problema no está en ICE, ni en la señalización, ni en los
+permisos. Está en **cómo se produce y se encola el audio**.
+
+### Causa 1: el código asumía 16 kHz
+
+`createAudioContext()` pedía `new AudioContext({ sampleRate: 16000 })` y
+`useMicCapture` enviaba los bloques **tal cual**, sin mirar `ctx.sampleRate`.
+La spec permite ignorar esa petición; WKWebView (macOS) suele quedarse con la
+tasa del hardware (44.1/48 kHz).
+
+Con un contexto a 48 kHz, cada bloque de 512 muestras dura 10.7 ms, pero el
+receptor lo reproduce como si fueran 16 kHz (32 ms). Consecuencias:
+
+- La voz suena **3× más lenta y grave**.
+- El emisor produce audio 3× más rápido de lo que el receptor lo consume.
+- La cola del receptor crece 3× más rápido de lo que se vacía → al superar
+  150 ms se re-sincroniza, dejando cortes.
+
+**El fix** (`frontend/src/utils/audio.js`, `useMicCapture.js`):
+
+```js
+const resample = createResampler(ctx.sampleRate);
+feed(resample(input)) // filtro de caja, 48k → 16k, con estado
+```
+
+y `feed()` acumula hasta 512 muestras de **salida**, para que el ritmo de
+envío sea constante (~31/s) sea cual sea la tasa del contexto.
+
+**Cómo confirmarlo**: al unirse a la llamada, la consola muestra
+
+```
+[audio] AudioContext a 48000 Hz; remuestreando a 16000 Hz
+```
+
+Si aparece, el navegador estaba ignorando los 16 kHz.
+
+### Causa 2: el video tapa a la voz (y el host es el más afectado)
+
+Audio y video comparten **la misma asociación SCTP** (un `PeerConnection` por
+peer). Los envíos de pion son **no bloqueantes**: cada `SendText` empuja a una
+cola sin límite y vuelve enseguida. Como el bucle de frames no espera al
+enlace, el video se acumula y la voz queda **detrás** de él:
+
+```
+cola SCTP:  [frame 20 KB][frame 20 KB][frame 20 KB][audio 1.4 KB]...
+                                                      ↑ espera a que salgan 60 KB
+```
+
+Esto se llama **head-of-line blocking**. Un retraso de 300 ms es invisible en
+video, pero arruina una conversación.
+
+**Por qué el host lo nota más**: en topología estrella el host **reenvía** el
+audio y el video de todos. Su cola de salida lleva su propio video + el de los
+demás, así que su voz es la que más espera. Además, el relay se hacía **con
+`a.mu` tomado**, de modo que cada reenvío bloqueaba también `SendAudio`.
+
+**El fix**:
+
+```go
+// audio.go
+if ch.BufferedAmount() > maxAudioBuffered { continue }  // 8 KB ≈ 260 ms
+
+// video.go
+if s.dcv.BufferedAmount() > maxVideoBuffered { continue } // 16 KB ≈ 1 frame
+
+// webrtc.go: copiar peers bajo el lock y enviar FUERA de él
+a.mu.Lock()
+targets := copiarPeers(excepto remoteID)
+a.mu.Unlock()
+for _, s := range targets { ... }
+```
+
+El video se auto-regula: si el frame anterior no ha salido, el siguiente se
+descarta. Se pierden frames (aceptable), no se acumula retraso (inaceptable).
+
+### Causa 3: el AudioWorklet no existía
+
+`useMicCapture` pedía `${BASE_URL}mic-processor.js`, pero el archivo **nunca
+existió** (no está en `frontend/public` ni en el historial de git). Siempre
+caía al `ScriptProcessorNode` obsoleto, que además no remuestreaba.
+
+Se creó `frontend/public/mic-processor.js`: un `AudioWorkletProcessor` que
+remuestrea a 16 kHz y emite bloques de 512. Si `addModule` falla, el fallback
+ahora aplica el mismo remuestreo en JS.
+
+### Causa 4: re-sincronizar no paraba lo ya agendado
+
+`useAudioPlayback` corregía `nextTimeRef` cuando la cola superaba 150 ms, pero
+**no cancelaba** las `BufferSource` ya programadas en el futuro. El bloque
+nuevo sonaba **encima** del anterior (eco). Ahora se guardan las fuentes
+activas y se hace `stop()` **solo sobre las que aún no han empezado**; la que
+está sonando se deja terminar para no producir un chasquido.
+
+### Cómo verificarlo
+
+1. Abrir la consola del webview (`wails dev`) y comprobar la línea `[audio]`.
+2. Reproducir el escenario que más fallaba: **compartir pantalla + hablar**.
+   Antes la voz se degradaba al compartir; ahora el video cede frames.
+3. Prueba A/B del remuestreo (simulación en Node, 1 s de tono):
+
+```
+48000 Hz -> 16 kHz: 48000 -> 16000 muestras (1000.0 ms), 1 kHz medido ~999 Hz
+44100 Hz -> 16 kHz: 44100 -> 16000 muestras (1000.0 ms), 1 kHz medido ~999 Hz
+worklet @48000: emitidas 16000 (esperado 16000), bloques de 512: 31
+```
+
+### Lecciones
+
+- **Nunca asumir la tasa de muestreo** de un `AudioContext`: leer
+  `ctx.sampleRate` y remuestrear.
+- **La voz y el video no pueden compartir una cola sin límite.** Si no hay
+  prioridad por stream, hay que descartar en el emisor.
+- **`SendText` no bloquea**, pero eso no es bueno: la cola crece en silencio.
+  `BufferedAmount()` es la señal para decidir qué tirar.
+- **No hacer I/O con un mutex global tomado**, y menos en el relay.
+
 | Síntoma | Dónde mirar primero | Truco |
 |---------|--------------------|-------|
 | Error de la librería estándar | el código de la app que la usa | `grep` el mensaje en el código de Go |
@@ -480,3 +618,4 @@ vwebp animated.webp
 | Error de SQLite | el DSN y el pool | test de estrés con lecturas y escrituras simultáneas |
 | Conexión que no se establece | ICE (candidatos) **y** señalización | test end-to-end con dos peers |
 | Fantasmas/residuos en una animación | el método de *disposal* del archivo | `webpmux -info` y comparar con libwebp |
+| Voz entrecortada o con retraso | la tasa de muestreo y la cola del canal | consola `[audio]` + `BufferedAmount()` |

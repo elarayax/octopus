@@ -150,6 +150,17 @@ Compone cuatro hooks:
 la API de Web Audio (captura, niveles, reproducción). Go solo transporta los
 chunks ya codificados.
 
+**Por qué `useMicCapture` remuestrea**: el `AudioContext` no siempre respeta
+`sampleRate: 16000` (WKWebView suele quedarse en 48 kHz). Enviar sus bloques
+como si fueran de 16 kHz hacía que el receptor los reprodujera 3× más lentos y
+con retraso creciente. Ahora se lee `ctx.sampleRate` y se remuestrea, con el
+`AudioWorklet` `frontend/public/mic-processor.js` como vía principal y el
+`ScriptProcessor` como respaldo.
+
+**Por qué `useAudioPlayback` guarda las fuentes activas**: al re-sincronizar
+(cola > 150 ms) hay que hacer `stop()` sobre lo ya agendado; si no, el bloque
+nuevo suena encima del anterior (eco).
+
 **Por qué `playback.resume()`**: por la política de autoplay de los
 navegadores, el `AudioContext` empieza suspendido hasta que el usuario
 interactúa. `resume()` lo despierta. En macOS, `EnableAutoplayWithoutUserAction`

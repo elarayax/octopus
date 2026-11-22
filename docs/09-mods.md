@@ -163,5 +163,52 @@ sobrescribirlos.
 | `theme.css` | colores, tipografías, espaciados | CSS con `!important` |
 | `layout.json` | posición del sidebar, paneles visibles | JSON |
 
+## Sonidos personalizados (alfa)
+
+Los archivos de audio locales se ubican en:
+
+```text
+~/.chat_p2p/mods/default/sounds/
+```
+
+Por ahora se admiten archivos MP3 de hasta 5 MB cada uno. La configuración
+guarda nombres de archivo, no rutas. Se rechazan nombres vacíos, rutas
+absolutas, `..`, separadores de directorio y extensiones distintas de `.mp3`.
+Go limita la lectura a esa carpeta, comprueba que el archivo sea regular y
+contenga una cabecera de frame MP3, y entrega los bytes al frontend mediante
+un método Wails.
+
+La estructura versionada por canal contempla cuatro eventos y excepciones por
+código fijo de usuario. Un valor `null` en una excepción hereda el sonido
+general; un evento sin selección personalizada usa el sonido empaquetado de
+Octopus. Para activar voz local, el fallback inicial es `voice-join.mp3`.
+
+```json
+{
+  "version": 1,
+  "sounds": {
+    "userJoined": "entrada.mp3",
+    "userLeft": "salida.mp3",
+    "peerConnected": "conexion.mp3",
+    "localVoiceActivated": "voz-local.mp3"
+  },
+  "users": {
+    "ABC234": {
+      "userJoined": "entrada-especial.mp3",
+      "userLeft": null
+    }
+  }
+}
+```
+
+La base local guarda la configuración en `channel_sound_config`, vinculada a
+`canal.codigo` (no al ID local de SQLite). En esta etapa solo el host activo
+puede guardarla. La comprobación usa el estado `isHost` existente: limita el
+uso normal desde la app, pero no autentica criptográficamente al propietario.
+La sincronización WebRTC, la interfaz de administración, los roles y el envío
+de archivos quedan pendientes de etapas posteriores. Cada participante debe
+tener localmente los MP3 referenciados; si falta uno o no se puede leer, se
+usa el asset original de Octopus.
+
 **Por qué el CSS se inyecta en runtime en vez de compilarse**: los mods
 dependen solo de la app, no al revés. Añadir un mod no requiere recompilar.

@@ -85,6 +85,17 @@ func (a *App) initDB() error {
 	if _, err := db.Exec(schemaSQL); err != nil {
 		return err
 	}
+	// Migración idempotente para bases existentes: una configuración de sonidos
+	// se relaciona por el código compartido del canal, nunca por su id local.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS channel_sound_config (
+		channel_code VARCHAR(6) PRIMARY KEY,
+		config_json TEXT NOT NULL,
+		version INTEGER NOT NULL,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (channel_code) REFERENCES canal(codigo) ON DELETE CASCADE
+	)`); err != nil {
+		return err
+	}
 
 	// Migración: instalaciones antiguas no tienen la columna tipo
 	// (ignora el error "duplicate column name" si ya existe)

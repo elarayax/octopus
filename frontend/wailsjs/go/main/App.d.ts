@@ -12,6 +12,8 @@ export function GetCanales():Promise<Array<main.CanalEntry>>;
 
 export function GetChannelInfo():Promise<main.ChannelInfo>;
 
+export function GetChannelSoundConfig(arg1:string):Promise<main.ChannelSoundConfig>;
+
 export function GetChatHistory():Promise<Array<main.Message>>;
 
 export function GetCurrentChannelCode():Promise<string>;
@@ -31,6 +33,18 @@ export function LoadCustomCSS():Promise<string>;
 export function LoadCustomLayout():Promise<main.ModLayout>;
 
 export function OpenModsFolder():Promise<string>;
+
+export function LoadCustomVideoCSS():Promise<string>;
+
+export function LoadModSound(arg1:string):Promise<main.ModSoundAsset>;
+
+export function NotifyDesktop(arg1:string,arg2:string):Promise<string>;
+
+export function OpenModsFolder():Promise<string>;
+
+export function ReactToMessage(arg1:string,arg2:string):Promise<string>;
+
+export function SaveChannelSoundConfig(arg1:string,arg2:string):Promise<void>;
 
 export function SendAudio(arg1:string):Promise<string>;
 

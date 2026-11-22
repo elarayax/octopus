@@ -27,6 +27,15 @@ CREATE TABLE IF NOT EXISTS canal (
     ultima_vez DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Configuración local por código de canal. El audio no se almacena aquí.
+CREATE TABLE IF NOT EXISTS channel_sound_config (
+    channel_code VARCHAR(6) PRIMARY KEY,
+    config_json TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (channel_code) REFERENCES canal(codigo) ON DELETE CASCADE
+);
+
 -- 5. Relación Usuarios <-> Servidores
 CREATE TABLE IF NOT EXISTS usuarios_servidor (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

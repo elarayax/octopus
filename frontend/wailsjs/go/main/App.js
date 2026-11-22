@@ -22,6 +22,10 @@ export function GetChannelInfo() {
   return window['go']['main']['App']['GetChannelInfo']();
 }
 
+export function GetChannelSoundConfig(arg1) {
+  return window['go']['main']['App']['GetChannelSoundConfig'](arg1);
+}
+
 export function GetChatHistory() {
   return window['go']['main']['App']['GetChatHistory']();
 }
@@ -58,8 +62,28 @@ export function LoadCustomLayout() {
   return window['go']['main']['App']['LoadCustomLayout']();
 }
 
+export function LoadCustomVideoCSS() {
+  return window['go']['main']['App']['LoadCustomVideoCSS']();
+}
+
+export function LoadModSound(arg1) {
+  return window['go']['main']['App']['LoadModSound'](arg1);
+}
+
+export function NotifyDesktop(arg1, arg2) {
+  return window['go']['main']['App']['NotifyDesktop'](arg1, arg2);
+}
+
 export function OpenModsFolder() {
   return window['go']['main']['App']['OpenModsFolder']();
+}
+
+export function ReactToMessage(arg1, arg2) {
+  return window['go']['main']['App']['ReactToMessage'](arg1, arg2);
+}
+
+export function SaveChannelSoundConfig(arg1, arg2) {
+  return window['go']['main']['App']['SaveChannelSoundConfig'](arg1, arg2);
 }
 
 export function SendAudio(arg1) {

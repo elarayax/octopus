@@ -1,0 +1,167 @@
+/* ---------- Pestañas ---------- */
+.sidebar-tabs {
+  display: flex; gap: 4px; padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-deep);
+  border: 1px solid var(--color-border);
+}
+.sidebar-tabs__tab {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; height: 32px; padding: 0 8px; border: none;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: transparent; color: var(--color-text-muted);
+  font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.sidebar-tabs__tab:hover { color: var(--color-text); background: var(--color-surface-hover); }
+.sidebar-tabs__tab.is-active {
+  background: var(--color-active-row); color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-active-row-border);
+}
+.sidebar-tabs__count {
+  padding: 0 6px; border-radius: 999px; background: var(--color-neutral);
+  font-size: 0.7rem; font-weight: 700; color: var(--color-text-label);
+}
+
+/* Foco visible para teclado */
+.sidebar-tabs__tab:focus-visible, .icon-btn:focus-visible,
+.channel-row__mute:focus-visible, .chat-history__jump:focus-visible {
+  outline: 2px solid var(--color-accent); outline-offset: 2px;
+}
+
+/* ---------- Canal silenciado ---------- */
+.channel-row__mute {
+  flex: none; display: grid; place-items: center; width: 26px; height: 26px;
+  margin-right: 2px; border: none; border-radius: 8px; background: transparent;
+  color: var(--color-text-muted); opacity: 0; /* oculta hasta pasar el mouse */
+  transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+.channel-row:hover .channel-row__mute,
+.channel-row__mute:focus-visible,
+.channel-row__mute.is-on { opacity: 1; } /* si está silenciado, siempre visible */
+.channel-row__mute:hover { background: var(--color-secondary); color: var(--color-text); }
+.channel-row__mute.is-on { color: var(--color-warning); }
+.channel-row--muted .channel-row__name { color: var(--color-text-muted); }
+.channel-row__muted-icon { margin-left: 6px; vertical-align: -2px; color: var(--color-text-faint); }
+.app-header__muted { margin-left: 8px; vertical-align: -1px; color: var(--color-warning); }
+.icon-btn--ghost { background: transparent; }
+
+/* ---------- Mic / audio silenciado en usuarios ---------- */
+.avatar__mute {
+  position: absolute; left: -3px; bottom: -3px;
+  display: grid; place-items: center; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--color-danger); color: #fff;
+  border: 2px solid var(--dot-ring, var(--color-surface)); box-sizing: content-box;
+}
+.avatar__mute .icon { stroke-width: 2.4; }
+.users-panel__flag { flex: none; color: var(--color-text-faint); }
+.users-panel__flag--off { color: var(--color-danger); }
+
+/* ---------- Botón "ir al final" ---------- */
+.chat-history__jump {
+  position: sticky; bottom: 10px; /* sticky: queda pegado abajo mientras haces scroll */
+  display: flex; align-items: center; gap: 6px; width: fit-content; margin: 0 auto;
+  padding: 7px 14px; border: 1px solid var(--color-active-row-border);
+  border-radius: 999px; background: var(--color-active-row); color: var(--color-text);
+  font: inherit; font-size: 0.82rem; font-weight: 600;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); cursor: pointer;
+}
+.chat-history__jump:hover { background: var(--color-secondary); }
+
+/* ---------- Packs de íconos ---------- */
+.icon--glyph { display: inline-grid; place-items: center; line-height: 1; font-style: normal; }
+.icon--pack-relleno * { fill: currentColor; fill-opacity: 0.22; } /* formas rellenas suaves */
+/* ---------- Dock de voz (rediseño: botones con texto, Unirse bien visible) ---------- */
+.voice-dock { display: flex; flex-direction: column; gap: 12px; }
+.voice-dock__head { display: flex; align-items: center; gap: 12px; }
+.voice-dock__head .voice-dock__text { flex: 1; }
+.voice-dock__gear { width: 32px; height: 32px; border-radius: 9px; }
+
+/* Botón principal (Unirse / Salir): ancho completo, texto normal (sin espaciado raro) */
+.voice-dock__main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: none;
+  width: 100%;
+  height: 44px;
+  border: none;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.voice-dock__main--join { background: var(--color-success-bright); color: #04211a; }
+.voice-dock__main--leave {
+  height: 38px;
+  background: rgba(224, 72, 90, 0.14);
+  color: #ff8b99;
+  box-shadow: inset 0 0 0 1px rgba(224, 72, 90, 0.35);
+}
+.voice-dock__main--leave:hover:not(:disabled) { background: var(--color-danger); color: #fff; filter: none; }
+
+/* Controles con ícono arriba y texto abajo */
+.voice-controls { display: grid; gap: 6px; }
+.voice-controls--4 { grid-template-columns: repeat(4, 1fr); }
+.voice-controls--2 { grid-template-columns: repeat(2, 1fr); }
+.vc-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  height: 56px;
+  padding: 4px 2px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-label);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+.vc-btn:hover:not(:disabled) { background: var(--color-secondary); color: var(--color-text); }
+.vc-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.vc-btn__label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+}
+/* rojo = silenciado/apagado por ti · verde = en vivo */
+.vc-btn--off { background: rgba(224, 72, 90, 0.16); color: #ff8b99; border-color: rgba(224, 72, 90, 0.35); }
+.vc-btn--on { background: rgba(61, 220, 151, 0.14); color: var(--color-success-bright); border-color: rgba(61, 220, 151, 0.35); }
+/* ---------- Filas de canal: todas del MISMO ancho ----------
+   Antes los botones laterales (silenciar / conectar) ocupaban espacio dentro de la fila, así que
+   el botón principal (y su borde) quedaba más angosto en unas filas que en otras.
+   Ahora el botón principal llena siempre toda la fila y los laterales flotan encima, a la derecha. */
+.channel-row__main {
+  width: 100%;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  padding-right: 72px; /* espacio reservado para los botones laterales: el texto nunca queda debajo */
+}
+.channel-row__mute,
+.channel-row__connect {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  z-index: 1;
+  pointer-events: none; /* invisibles = no se pueden pulsar por error */
+}
+.channel-row__mute { right: 8px; }
+.channel-row--connectable .channel-row__mute { right: 42px; } /* deja sitio al botón conectar */
+.channel-row__connect { right: 8px; }
+.channel-row:hover .channel-row__mute,
+.channel-row:hover .channel-row__connect,
+.channel-row__mute:focus-visible,
+.channel-row__connect:focus-visible,
+.channel-row__mute.is-on { pointer-events: auto; }

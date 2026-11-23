@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Icon } from '../atoms';
 
 /** Filtra canales y usuarios. Ctrl/⌘ + K enfoca el campo. */
-export function SearchBox({ value, onChange }) {
+export function SearchBox({ value, onChange, placeholder = 'Buscar o ejecutar...' }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export function SearchBox({ value, onChange }) {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => e.key === 'Escape' && (onChange(''), e.currentTarget.blur())}
-        placeholder="Buscar o ejecutar..."
+        placeholder={placeholder}
         aria-label="Buscar canales y usuarios"
       />
       <kbd className="search-box__kbd">{isMac ? '⌘K' : 'Ctrl K'}</kbd>

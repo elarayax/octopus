@@ -99,6 +99,8 @@ export namespace main {
 	    sidebarPosition: string;
 	    panels: Record<string, boolean>;
 	    video?: ModVideo;
+	    iconPack?: string;
+	    icons?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModLayout(source);
@@ -110,6 +112,8 @@ export namespace main {
 	        this.sidebarPosition = source["sidebarPosition"];
 	        this.panels = source["panels"];
 	        this.video = this.convertValues(source["video"], ModVideo);
+	        this.iconPack = source["iconPack"];
+	        this.icons = source["icons"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

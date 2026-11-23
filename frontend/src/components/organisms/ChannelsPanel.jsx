@@ -10,6 +10,7 @@ function ChannelIcon({ icono }) {
 
 /**
  * Lista de canales recientes.
+ * - La campana silencia las notificaciones del canal (mutedCodes / onToggleMute).
  * - Seleccionar (clic en la tarjeta) no conecta: solo cambia el historial que se ve.
  * - El botón Play cambia de canal y luego conecta.
  * Estados por tarjeta: seleccionada (currentCode/selectedCode), personal (ownCode),
@@ -24,6 +25,8 @@ export function ChannelsPanel({
   connectingCodes = [],
   onSwitch,
   onConnect,
+  mutedCodes = [],
+  onToggleMute,
   status,
   query = '',
 }) {
@@ -51,6 +54,7 @@ export function ChannelsPanel({
             const isLocal = c.codigo === 'LOCAL';
             const isConnected = connectedCodes.includes(c.codigo);
             const isConnecting = connectingCodes.includes(c.codigo);
+            const isMuted = mutedCodes.includes(c.codigo);
             const showConnect = !isPersonal && !isLocal && /^[A-Z0-9]{6}$/.test(c.codigo);
             const rowClasses = [
               'channel-row',
@@ -58,6 +62,8 @@ export function ChannelsPanel({
               isPersonal && 'channel-row--personal',
               isConnecting && 'channel-row--connecting',
               isConnected && 'channel-row--connected',
+              isMuted && 'channel-row--muted',
+              showConnect && 'channel-row--connectable', // ← nueva: la fila tiene botón de conectar
             ]
               .filter(Boolean)
               .join(' ');
@@ -78,11 +84,25 @@ export function ChannelsPanel({
                     <ChannelIcon icono={c.icono} />
                   </span>
                   <span className="channel-row__text">
-                    <span className="channel-row__name">{c.nombre}</span>
+                    <span className="channel-row__name">
+                      {c.nombre}
+                      {isMuted && <Icon name="bell-off" size={13} className="channel-row__muted-icon" />}
+                    </span>
                     {c.subtitulo && <span className="channel-row__sub">{c.subtitulo}</span>}
                     <span className="channel-row__code">{c.codigo}</span>
                   </span>
                 </button>
+                {onToggleMute && (
+                  <button
+                    className={`channel-row__mute ${isMuted ? 'is-on' : ''}`}
+                    onClick={() => onToggleMute(c.codigo)}
+                    title={isMuted ? 'Activar notificaciones' : 'Silenciar canal'}
+                    aria-pressed={isMuted}
+                    aria-label={`${isMuted ? 'Activar notificaciones de' : 'Silenciar'} ${c.nombre}`}
+                  >
+                    <Icon name={isMuted ? 'bell-off' : 'bell'} size={14} />
+                  </button>
+                )}
                 {showConnect && (
                   <button
                     className="channel-row__connect"

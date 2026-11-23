@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Button } from '../atoms';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Icon } from '../atoms';
 import { ChatMessage, DayDivider } from '../molecules';
 import { parseMsgTime, formatClock, formatDayLabel, dayKey } from '../../utils/time';
 
@@ -50,6 +50,11 @@ function buildBlocks(messages) {
 
 export function ChatHistory({ messages, avatars = {}, selfName, serverStarted, onStart, onReply, onReact }) {
   const endRef = useRef(null);
+  const scrollRef = useRef(null);
+  const stickRef = useRef(true); // ¿estás leyendo lo último? (entonces sí seguimos el scroll)
+  const prevLenRef = useRef(0);
+  const [pending, setPending] = useState(0); // mensajes nuevos mientras lees más arriba
+  const [away, setAway] = useState(false); // ¿estás lejos del final?
   const blocks = useMemo(() => buildBlocks(messages), [messages]);
 
   // Para mostrar la cita de una respuesta
@@ -65,13 +70,41 @@ export function ChatHistory({ messages, avatars = {}, selfName, serverStarted, o
     setTimeout(() => el.classList.remove('is-flash'), 1400);
   }, []);
 
-  // Autoscroll solo cuando llegan mensajes nuevos (no al reaccionar a uno antiguo)
+  const scrollToEnd = useCallback((behavior = 'smooth') => {
+    endRef.current?.scrollIntoView({ block: 'end', behavior });
+    stickRef.current = true;
+    setPending(0);
+    setAway(false);
+  }, []);
+
+  // Al hacer scroll: ¿estás cerca del final? (80px de tolerancia)
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickRef.current = near;
+    setAway(!near);
+    if (near) setPending(0);
+  }, []);
+
+  // Autoscroll inteligente:
+  //  - carga de historial / cambio de canal (cambia mucho el largo) -> salta al final
+  //  - mensaje tuyo, o ya estabas abajo -> baja suave
+  //  - mensaje ajeno mientras lees más arriba -> NO te mueve; suma al aviso "N nuevos"
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages.length]);
+    const prev = prevLenRef.current;
+    prevLenRef.current = messages.length;
+    if (messages.length === 0) return;
+
+    const last = messages[messages.length - 1];
+    const bulk = messages.length - prev !== 1;
+    if (bulk) return scrollToEnd('auto');
+    if (stickRef.current || (selfName && last.sender === selfName)) return scrollToEnd('smooth');
+    setPending((p) => p + 1);
+  }, [messages, selfName, scrollToEnd]);
 
   return (
-    <div className="chat-history">
+    <div className="chat-history" ref={scrollRef} onScroll={onScroll}>
       <div className="chat-history__inner">
         {messages.length === 0 ? (
           <div className="chat-history__empty">
@@ -109,6 +142,12 @@ export function ChatHistory({ messages, avatars = {}, selfName, serverStarted, o
         )}
         <div ref={endRef} />
       </div>
+      {away && (
+        <button className="chat-history__jump" onClick={() => scrollToEnd('smooth')}>
+          <Icon name="arrow-down" size={14} />
+          {pending > 0 ? `${pending} ${pending === 1 ? 'mensaje nuevo' : 'mensajes nuevos'}` : 'Ir al final'}
+        </button>
+      )}
     </div>
   );
 }

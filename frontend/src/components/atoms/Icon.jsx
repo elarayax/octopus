@@ -1,4 +1,7 @@
 // Iconos de trazo (24x24), sin dependencias externas.
+// Los mods pueden cambiar el estilo (iconPack) o reemplazar íconos sueltos (icons).
+import { createContext, useContext, useMemo } from 'react';
+
 const PATHS = {
   mic: (
     <>
@@ -64,24 +67,110 @@ const PATHS = {
       <path d="M21 16l-5-5-8 8" />
     </>
   ),
+  bell: <path d="M6 9a6 6 0 0 1 12 0c0 6 2 7.5 2 7.5H4S6 15 6 9M10 20a2 2 0 0 0 4 0" />,
+  'bell-off': (
+    <>
+      <path d="M3 3l18 18" />
+      <path d="M8.6 4.8A6 6 0 0 1 18 9c0 3 .5 4.8 1.2 5.9M6 9c0 6-2 7.5-2 7.5h11M10 20a2 2 0 0 0 4 0" />
+    </>
+  ),
+  volume: (
+    <>
+      <path d="M4 9.5v5h3.5l4.5 4v-13l-4.5 4z" />
+      <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" />
+    </>
+  ),
+  'volume-off': (
+    <>
+      <path d="M4 9.5v5h3.5l4.5 4v-13l-4.5 4z" />
+      <path d="M16 9.5l5 5M21 9.5l-5 5" />
+    </>
+  ),
+  video: (
+    <>
+      <rect x="2.5" y="6" width="13" height="12" rx="2" />
+      <path d="M15.5 10.5l6-3.5v10l-6-3.5" />
+    </>
+  ),
+  'video-off': (
+    <>
+      <path d="M3 3l18 18" />
+      <path d="M15.5 15.5V18H4.5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2H7M11 6h2.5a2 2 0 0 1 2 2v2.5l6-3.5v10" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.8a3.5 3.5 0 0 1 0 6.4M18 14.3a6.5 6.5 0 0 1 3.5 5.7" />
+    </>
+  ),
+  hash: <path d="M5 9h15M4 15h15M10 4L8 20M16 4l-2 16" />,
+  'arrow-down': <path d="M12 5v14M6 13l6 6 6-6" />,
 };
 
+// Pack "emoji": cada ícono se reemplaza por un glifo (los mods pueden mezclar con `icons`).
+const EMOJI_PACK = {
+  mic: '🎙️', 'mic-off': '🔇', gear: '⚙️', clip: '📎', search: '🔍', bars: '📊', user: '👤',
+  server: '🖥️', refresh: '🔄', folder: '📁', play: '▶️', close: '✖️', screen: '🖵', reply: '↩️',
+  smile: '😊', image: '🖼️', bell: '🔔', 'bell-off': '🔕', volume: '🔊', 'volume-off': '🔈',
+  video: '📹', 'video-off': '🚫', users: '👥', hash: '#️⃣', 'arrow-down': '⬇️',
+};
+
+// Packs de estilo: solo cambian el trazo (el dibujo es el mismo).
+const PACK_STYLE = {
+  default: { strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' },
+  fino: { strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round' },
+  grueso: { strokeWidth: 2.4, strokeLinecap: 'square', strokeLinejoin: 'miter' },
+  relleno: { strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
+};
+
+// Un override es "datos de trazo" (solo números y comandos SVG) o un glifo de texto/emoji.
+// Nunca se inyecta HTML: así un mod no puede colar scripts.
+const PATH_DATA = /^[MmZzLlHhVvCcSsQqTtAa\d\s.,+-]+$/;
+const isPathData = (v) => PATH_DATA.test(v) && /\d/.test(v);
+
+const IconPackContext = createContext({ pack: 'default', overrides: {} });
+
+export function IconPackProvider({ pack = 'default', overrides = {}, children }) {
+  const value = useMemo(() => ({ pack, overrides }), [pack, overrides]);
+  return <IconPackContext.Provider value={value}>{children}</IconPackContext.Provider>;
+}
+
 export function Icon({ name, size = 18, className = '', ...props }) {
+  const { pack, overrides } = useContext(IconPackContext);
+
+  // 1º lo que el mod defina para este ícono; 2º el pack emoji; 3º el dibujo propio
+  const custom = overrides[name] ?? (pack === 'emoji' ? EMOJI_PACK[name] : undefined);
+  const style = PACK_STYLE[pack] || PACK_STYLE.default;
+  const packClass = `icon--pack-${PACK_STYLE[pack] ? pack : 'default'}`;
+
+  // Glifo de texto / emoji
+  if (typeof custom === 'string' && custom && !isPathData(custom)) {
+    return (
+      <span
+        className={`icon icon--glyph ${className}`}
+        style={{ width: size, height: size, fontSize: size * 0.9 }}
+        aria-hidden="true"
+        {...props}
+      >
+        {custom}
+      </span>
+    );
+  }
+
   return (
     <svg
-      className={`icon ${className}`}
+      className={`icon ${packClass} ${className}`}
       width={size}
       height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      {...style}
       aria-hidden="true"
       {...props}
     >
-      {PATHS[name]}
+      {typeof custom === 'string' && custom ? <path d={custom} /> : PATHS[name]}
     </svg>
   );
 }

@@ -6,6 +6,6 @@ export { Slider } from './Slider';
 export { StatusDot } from './StatusDot';
 export { Toast } from './Toast';
 
-export { Icon } from './Icon';
+export { Icon, IconPackProvider } from './Icon';
 export { Avatar, hueFrom } from './Avatar';
 export { Equalizer } from './Equalizer';

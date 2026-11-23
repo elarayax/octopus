@@ -1,8 +1,9 @@
 import { useState, useCallback, useMemo } from 'react';
-import { useToast, useMods, useProfile, useP2P, useChat, useVoiceCall, useVideoCall, useScreenShare, useUnread, useUsers, useChannel, useChannels } from '../hooks';
+import { useToast, useMods, useProfile, useP2P, useChat, useVoiceCall, useVideoCall, useScreenShare, useUnread, useUsers, useChannel, useChannels, useMutedChannels, useShortcuts } from '../hooks';
 import { STATUS } from '../hooks/useP2P';
 import { SetChannelIconFromDialog } from '../../wailsjs/go/main/App';
-import { Toast } from '../components/atoms';
+import { Toast, IconPackProvider } from '../components/atoms';
+import { SidebarTabs } from '../components/molecules';
 import {
   AppHeader,
   SidebarBrand,
@@ -23,14 +24,12 @@ export default function ChatPage() {
   const mods = useMods();
   const profile = useProfile({ notify });
   const p2p = useP2P({ notify });
-  const unread = useUnread(); // contador + notificación cuando la ventana no tiene el foco
-  const chat = useChat({ notify, onIncoming: unread.onIncoming });
-  const call = useVoiceCall({ notify });
-  const video = useVideoCall({ notify });
-  const screen = useScreenShare({ notify });
   const users = useUsers();
+  const selfName = users.users.find((u) => u.self)?.name || profile.username;
   const { channel, save: saveChannel } = useChannel();
+  const mutedChannels = useMutedChannels();
   const channels = useChannels({
+    // `chat` se declara más abajo; esta función solo corre después del primer render, así que ya existe
     onSwitch: () => {
       chat.reload();
       users.refresh();
@@ -39,6 +38,20 @@ export default function ChatPage() {
     p2pStatus: p2p.status,
     connectedCodes: p2p.peers,
   });
+
+  // Canal activo: por nombre (refleja el canal al que se cambió); ante empate, el del código propio
+  const activeCode = useMemo(() => {
+    const byName = channels.channels.filter((c) => c.nombre === channel?.nombre);
+    return (byName.find((c) => c.codigo === p2p.nodeInfo?.code) ?? byName[0])?.codigo ?? p2p.nodeInfo?.code;
+  }, [channels.channels, channel?.nombre, p2p.nodeInfo?.code]);
+
+  const channelMuted = mutedChannels.isMuted(activeCode);
+  // Contador + notificación del sistema (no suena si la ventana tiene foco o el canal está silenciado)
+  const unread = useUnread({ muted: channelMuted, selfName });
+  const chat = useChat({ notify, onIncoming: unread.onIncoming });
+  const call = useVoiceCall({ notify });
+  const video = useVideoCall({ notify });
+  const screen = useScreenShare({ notify });
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [serverOpen, setServerOpen] = useState(false);
@@ -70,7 +83,6 @@ export default function ChatPage() {
   const isStarted = p2p.status !== STATUS.IDLE;
   const peers = users.users.filter((u) => u.online && !u.self);
   const onlineUsers = users.users.filter((u) => u.online);
-  const selfName = users.users.find((u) => u.self)?.name || profile.username;
 
   // Gente en la llamada de voz (tú + los demás que siguen conectados).
   // Los que no tienen cámara se pintan en el VideoStage con su avatar.
@@ -85,18 +97,64 @@ export default function ChatPage() {
     return list;
   }, [call.active, call.members, video.on, selfName, selfUser?.avatar, peers, users.avatarByName]);
 
-  // Canal activo: por nombre (refleja el canal al que se cambió); ante empate, el del código propio
-  const activeCode = useMemo(() => {
-    const byName = channels.channels.filter((c) => c.nombre === channel?.nombre);
-    return (byName.find((c) => c.codigo === p2p.nodeInfo?.code) ?? byName[0])?.codigo ?? p2p.nodeInfo?.code;
-  }, [channels.channels, channel?.nombre, p2p.nodeInfo?.code]);
+  // Cuántas personas MÁS (además de ti) están en la llamada de voz
+  const othersInCall = call.members.filter((n) => peers.some((p) => p.name === n)).length;
+
+  // ---- Pestañas Canales | Usuarios (se recuerda la última) ----
+  const [sidebarTab, setSidebarTab] = useState(() => {
+    try {
+      return localStorage.getItem('octopus.sidebarTab') === 'users' ? 'users' : 'channels';
+    } catch {
+      return 'channels';
+    }
+  });
+  const changeTab = useCallback((key) => {
+    setSidebarTab(key);
+    setQuery(''); // el buscador filtra la pestaña activa: al cambiar, se limpia
+    try {
+      localStorage.setItem('octopus.sidebarTab', key);
+    } catch {
+      /* sin almacenamiento: no se recuerda */
+    }
+  }, []);
+
+  const toggleChannelMute = useCallback(() => {
+    if (!activeCode) return;
+    mutedChannels.toggle(activeCode);
+    notify(channelMuted ? 'Notificaciones del canal activadas' : 'Canal silenciado', 'success');
+  }, [activeCode, channelMuted, mutedChannels, notify]);
+
+  useShortcuts({
+    toggleMic: () => call.active && call.toggleMute(),
+    toggleDeafen: () => call.active && call.toggleDeafen(),
+    toggleChannelMute,
+    showChannels: () => changeTab('channels'),
+    showUsers: () => changeTab('users'),
+  });
+
+  // Si un mod apaga un panel, su pestaña desaparece
+  const panelOn = (key) => mods.layout.panels?.[key] !== false;
+  const tabs = [
+    panelOn('channels') && { key: 'channels', label: 'Canales', icon: 'hash', count: channels.channels.length, title: 'Canales (Alt+1)' },
+    panelOn('users') && { key: 'users', label: 'Usuarios', icon: 'users', count: `${onlineUsers.length}/${users.users.length}`, title: 'Usuarios (Alt+2)' },
+  ].filter(Boolean);
+  const activeTab = tabs.some((t) => t.key === sidebarTab) ? sidebarTab : tabs[0]?.key;
 
   return (
-    <>
+    <IconPackProvider pack={mods.layout.iconPack || 'default'} overrides={mods.layout.icons || {}}>
       <MainLayout
         layout={mods.layout}
         brand={<SidebarBrand status={p2p.status} peers={peers.length} />}
-        search={<SearchBox value={query} onChange={setQuery} />}
+        search={
+          <SearchBox
+            value={query}
+            onChange={setQuery}
+            placeholder={activeTab === 'users' ? 'Buscar usuarios...' : 'Buscar canales...'}
+          />
+        }
+        tabs={tabs.length > 1 && <SidebarTabs tabs={tabs} active={activeTab} onChange={changeTab} />}
+        tabKeys={['channels', 'users']}
+        activeTab={activeTab}
         panels={{
           channels: (
             <ChannelsPanel
@@ -108,11 +166,23 @@ export default function ChatPage() {
               connectingCodes={channels.connectingCodes}
               onSwitch={channels.switchTo}
               onConnect={channels.connectTo}
+              mutedCodes={mutedChannels.muted}
+              onToggleMute={mutedChannels.toggle}
               status={p2p.status}
               query={query}
             />
           ),
-          users: <UsersPanel users={users.users} speaking={call.active && call.remoteSpeaking} query={query} />,
+          users: (
+            <UsersPanel
+              users={users.users}
+              speaking={call.active && call.remoteSpeaking}
+              query={query}
+              callMembers={call.members}
+              selfInCall={call.active}
+              selfMuted={call.muted}
+              selfDeafened={call.deafened}
+            />
+          ),
           invite: <InvitePanel code={p2p.nodeInfo?.code} onCopy={copyId} onConnect={p2p.connect} />,
         }}
         voice={
@@ -122,12 +192,15 @@ export default function ChatPage() {
             screen={screen}
             channelName={channel?.nombre || 'Chat P2P'}
             speakerName={peers.length === 1 ? peers[0].name : ''}
+            othersInCall={othersInCall}
             onOpenSettings={() => setSettingsOpen(true)}
           />
         }
         header={
           <AppHeader
             channel={channel}
+            channelMuted={channelMuted}
+            onToggleChannelMute={toggleChannelMute}
             onlineUsers={onlineUsers}
             serverStarted={isStarted}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -189,6 +262,6 @@ export default function ChatPage() {
         }}
       />
       <Toast toast={toast} />
-    </>
+    </IconPackProvider>
   );
 }

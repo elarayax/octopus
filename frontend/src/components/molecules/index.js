@@ -5,3 +5,4 @@ export { DeviceSelect } from './DeviceSelect';
 export { ChatMessage, DayDivider } from './ChatMessage';
 export { StatItem } from './StatItem';
 export { VoiceStatus } from './VoiceStatus';
+export { SidebarTabs } from './SidebarTabs';

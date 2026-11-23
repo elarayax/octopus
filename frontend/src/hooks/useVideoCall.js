@@ -77,8 +77,12 @@ export function useVideoCall({ notify }) {
   const [remote, setRemote] = useState({});
   const [devices, setDevices] = useState([]); // cámaras disponibles
   const [selectedId, setSelectedId] = useState(readSavedId);
+  const [starting, setStarting] = useState(false); // abriendo la cámara (esperando permiso)
   const streamRef = useRef(null);
   const stopLoopRef = useRef(null);
+  // Número de "intento" actual. Cada start/stop lo cambia; si al volver de un await el
+  // número ya no coincide, ese intento fue cancelado y debe soltar lo que abrió.
+  const runRef = useRef(0);
 
   // Lista de cámaras (los nombres aparecen después de dar permiso)
   const refreshDevices = useCallback(async () => {
@@ -114,6 +118,7 @@ export function useVideoCall({ notify }) {
   }, []);
 
   const stop = useCallback(() => {
+    runRef.current += 1; // cancela cualquier start() que siga esperando
     stopLoopRef.current?.();
     stopLoopRef.current = null;
     if (streamRef.current) {
@@ -122,16 +127,25 @@ export function useVideoCall({ notify }) {
     }
     setStream(null);
     setOn(false);
+    setStarting(false);
   }, []);
 
   const start = useCallback(
     async (deviceId) => {
       stop();
+      const myRun = runRef.current; // stop() ya subió el número: este es el de ESTE intento
+      setStarting(true);
       try {
         const media = await openCamera(deviceId);
+        // Si lo apagaron (o pidieron otra cámara) mientras esperaba el permiso, soltar esta cámara
+        if (runRef.current !== myRun) {
+          media.getTracks().forEach((t) => t.stop());
+          return;
+        }
         streamRef.current = media;
         setStream(media);
         setOn(true);
+        setStarting(false);
 
         // Recordar qué cámara quedó realmente en uso
         const usedId = media.getVideoTracks()[0]?.getSettings?.().deviceId;
@@ -142,7 +156,7 @@ export function useVideoCall({ notify }) {
         refreshDevices(); // tras el permiso aparecen los nombres de las cámaras
 
         // Cada frame sale como JPEG por el canal "video" (kind 'cam')
-        stopLoopRef.current = await startFrameLoop(media, {
+        const stopLoop = await startFrameLoop(media, {
           width: W,
           height: H,
           fps: FPS,
@@ -150,24 +164,38 @@ export function useVideoCall({ notify }) {
           fit: 'cover',
           send: (b64) => SendVideo('cam', b64),
         });
+        // Apagada mientras arrancaba el bucle: detenerlo ya (si no, quedaría corriendo sin dueño)
+        if (runRef.current !== myRun) {
+          stopLoop();
+          return;
+        }
+        stopLoopRef.current = stopLoop;
       } catch (err) {
-        stop();
-        notify(explainError(err), 'error');
+        // Solo limpiar/avisar si este intento sigue vigente (no pisar uno más nuevo)
+        if (runRef.current === myRun) {
+          stop();
+          notify(explainError(err), 'error');
+        }
       }
     },
     [stop, notify, refreshDevices]
   );
 
-  const toggle = useCallback(() => (on ? stop() : start(selectedId)), [on, start, stop, selectedId]);
+  // Si está encendida O todavía abriéndose, el botón la apaga
+  // (antes, un 2º clic abría otra cámara y la 1ª quedaba prendida)
+  const toggle = useCallback(
+    () => (on || starting ? stop() : start(selectedId)),
+    [on, starting, start, stop, selectedId]
+  );
 
   // Cambiar de cámara (si está encendida, se reinicia con la nueva)
   const changeDevice = useCallback(
     (id) => {
       setSelectedId(id);
       saveId(id);
-      if (streamRef.current) start(id);
+      if (streamRef.current || starting) start(id);
     },
-    [start]
+    [start, starting]
   );
 
   // Si conectan o desconectan una cámara, actualizar la lista;
@@ -194,5 +222,5 @@ export function useVideoCall({ notify }) {
   // Apagar la cámara al desmontar
   useEffect(() => stop, [stop]);
 
-  return { on, stream, remote, toggle, devices, selectedId, changeDevice };
+  return { on, starting, stream, remote, toggle, devices, selectedId, changeDevice };
 }

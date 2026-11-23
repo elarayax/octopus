@@ -22,6 +22,10 @@ type ModLayout struct {
 	SidebarPosition string          `json:"sidebarPosition"` // "left" or "right"
 	Panels          map[string]bool `json:"panels"`          // ej: {"voice": true, "connection": true}
 	Video           *ModVideo       `json:"video,omitempty"` // estilo de la videollamada
+	// Íconos: "default" | "fino" | "grueso" | "relleno" | "emoji"
+	IconPack string `json:"iconPack,omitempty"`
+	// Reemplazos sueltos: nombre del ícono -> datos de trazo SVG ("M12 2l...") o un glifo/emoji
+	Icons map[string]string `json:"icons,omitempty"`
 }
 
 // Devuelve el directorio base de mods (~/.chat_p2p/mods)

@@ -9,6 +9,12 @@ function StreamVideo({ stream }) {
     if (!el) return;
     if (el.srcObject !== stream) el.srcObject = stream;
     el.play?.().catch(() => {});
+    // Al quitar el stream (o desmontar), soltarlo del <video>: en WebKit/macOS un <video>
+    // que aún lo referencia puede dejar la luz de la cámara encendida
+    return () => {
+      el.pause?.();
+      el.srcObject = null;
+    };
   }, [stream]);
   return <video ref={ref} autoPlay muted playsInline />;
 }

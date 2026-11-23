@@ -10,7 +10,9 @@ import { SetVoicePresence } from '../../wailsjs/go/main/App';
 export function useVoiceCall({ notify }) {
   const prefs = useAudioPrefs();
   const devices = useAudioDevices();
-  const playback = useAudioPlayback(prefs.playbackGain);
+  const [deafened, setDeafened] = useState(false);
+  // Ensordecer = volumen 0 solo para ti; los demás siguen hablando y tú sigues enviando audio
+  const playback = useAudioPlayback(deafened ? 0 : prefs.playbackGain);
 
   const [active, setActive] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -52,10 +54,12 @@ export function useVoiceCall({ notify }) {
     mic.stop();
     SetVoicePresence(false).catch((err) => console.error('SetVoicePresence:', err));
     setActive(false);
+    setDeafened(false);
     SetCallState(false);
   }, [mic]);
 
   const toggleMute = useCallback(() => setMuted((m) => !m), []);
+  const toggleDeafen = useCallback(() => setDeafened((d) => !d), []);
 
   const changeDevice = useCallback(
     async (id) => {
@@ -73,6 +77,7 @@ export function useVoiceCall({ notify }) {
   return {
     active,
     muted,
+    deafened,
     members: Object.keys(members),
     remoteSpeaking: playback.remoteSpeaking,
     devices: devices.devices,
@@ -87,5 +92,6 @@ export function useVoiceCall({ notify }) {
     join,
     leave,
     toggleMute,
+    toggleDeafen,
   };
 }

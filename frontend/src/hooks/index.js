@@ -10,3 +10,5 @@ export { useChannel } from './useChannel';
 export { useChannels } from './useChannels';
 export { useScreenShare } from './useScreenShare';
 export { useUnread } from './useUnread';
+export { useMutedChannels } from './useMutedChannels';
+export { useShortcuts } from './useShortcuts';

@@ -3,16 +3,22 @@ import { Fragment } from 'react';
 /**
  * Template: solo decide DÓNDE va cada cosa.
  * - `layout` viene del mod (sidebarPosition + panels habilitados).
+ * - `tabs`/`tabKeys`/`activeTab`: pestañas que separan Canales y Usuarios.
  * - `panels` es un registro { clave: nodo } para el centro del sidebar;
  *   una clave con `false` en el mod se oculta.
  *   (`connection` y `nodeInfo` del layout.json antiguo ocultan el panel `invite`.)
  */
-export function MainLayout({ layout, brand, search, panels, voice, header, chat }) {
+export function MainLayout({ layout, brand, search, tabs, tabKeys = [], activeTab, panels, voice, header, chat }) {
   const { sidebarPosition = 'left', panels: enabled = {} } = layout;
 
   const inviteHidden = enabled.invite === false || (enabled.connection === false && enabled.nodeInfo === false);
+  // Los paneles que viven en pestañas (tabKeys) solo se pintan si son la pestaña activa
   const visible = Object.entries(panels).filter(
-    ([key, node]) => node && enabled[key] !== false && !(key === 'invite' && inviteHidden)
+    ([key, node]) =>
+      node &&
+      enabled[key] !== false &&
+      !(key === 'invite' && inviteHidden) &&
+      !(tabKeys.includes(key) && key !== activeTab)
   );
 
   return (
@@ -21,6 +27,7 @@ export function MainLayout({ layout, brand, search, panels, voice, header, chat 
         <div className="sidebar__top">
           {brand}
           {search}
+          {tabs}
         </div>
         <div className="sidebar__scroll">
           {visible.map(([key, node]) => (

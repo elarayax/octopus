@@ -4,11 +4,33 @@ import voiceJoinSound from '../../assets/sounds/voice-join.mp3';
 import voiceLeaveSound from '../../assets/sounds/voice-leave.mp3';
 
 /**
- * Dock de voz fijo al pie del sidebar.
- * speakerName: nombre de quien habla (si se conoce) para el subtítulo.
+ * Botón de control con ícono + texto debajo (así no hay que adivinar qué hace cada ícono).
+ * state: 'off' (rojo: algo está apagado/silenciado) | 'on' (verde: activo, ej. cámara encendida)
  */
-export function VoicePanel({ call, video, screen, channelName, speakerName, onOpenSettings }) {
-  const { active, muted, remoteSpeaking, join, leave, toggleMute } = call;
+function Control({ icon, label, state, title, onClick, disabled }) {
+  return (
+    <button
+      type="button"
+      className={`vc-btn ${state ? `vc-btn--${state}` : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-pressed={!!state}
+    >
+      <Icon name={icon} size={20} />
+      <span className="vc-btn__label">{label}</span>
+    </button>
+  );
+}
+
+/**
+ * Dock de voz fijo al pie del sidebar.
+ *  - Sin conectar: un solo botón grande "Unirse a la voz" (+ cámara y pantalla opcionales).
+ *  - Conectado: 4 controles con texto (micrófono, audio, cámara, pantalla) y "Salir".
+ * speakerName: nombre de quien habla (si se conoce). othersInCall: cuántos más hay en la llamada.
+ */
+export function VoicePanel({ call, video, screen, channelName, speakerName, othersInCall = 0, onOpenSettings }) {
+  const { active, muted, deafened, remoteSpeaking, join, leave, toggleMute, toggleDeafen } = call;
   useVoiceNotifications();
 
   const playLocalSound = (source) => {
@@ -30,66 +52,98 @@ export function VoicePanel({ call, video, screen, channelName, speakerName, onOp
     leave();
   };
 
+  // Texto de estado: dice lo más importante en lenguaje simple
+  let title;
   let sub;
-  if (!active) sub = 'Únete para hablar con el canal';
-  else if (remoteSpeaking) sub = `${channelName} · ${speakerName ? `${speakerName} hablando` : 'alguien habla'}`;
-  else sub = `${channelName} · ${muted ? 'micrófono silenciado' : 'micrófono abierto'}`;
+  if (!active) {
+    title = 'Llamada de voz';
+    sub =
+      othersInCall > 0
+        ? `${othersInCall} ${othersInCall === 1 ? 'persona' : 'personas'} en la llamada`
+        : 'Nadie ha entrado todavía';
+  } else {
+    title = 'Conectado a la voz';
+    if (remoteSpeaking) sub = speakerName ? `${speakerName} está hablando` : 'Alguien está hablando';
+    else if (deafened) sub = 'No estás escuchando la llamada';
+    else if (muted) sub = 'Micrófono silenciado';
+    else sub = `${channelName} · ${othersInCall + 1} en la llamada`;
+  }
+
+  const cameraState = video?.on ? 'on' : undefined;
+  const screenState = screen?.on ? 'on' : undefined;
+  const cameraLabel = video?.on ? 'Encendida' : video?.starting ? 'Abriendo…' : 'Cámara';
+  const cameraTitle = video?.on
+    ? 'Apagar cámara'
+    : video?.starting
+      ? 'Abriendo cámara… (clic para cancelar)'
+      : 'Encender cámara';
 
   return (
     <section className={`voice-dock ${active ? 'voice-dock--active' : ''}`}>
-      <div className="voice-dock__info">
+      <div className="voice-dock__head">
         <span className="voice-dock__icon">
           {active ? <Equalizer idle={!remoteSpeaking} /> : <Icon name="mic" size={18} />}
         </span>
         <div className="voice-dock__text">
-          <div className="voice-dock__title">{active ? 'Voz conectada' : 'Voz desconectada'}</div>
+          <div className="voice-dock__title">{title}</div>
           <div className="voice-dock__sub" title={sub}>{sub}</div>
         </div>
-      </div>
-
-      <div className="voice-dock__actions">
-        <button
-          className={`icon-btn ${active && muted ? 'icon-btn--danger' : ''}`}
-          onClick={toggleMute}
-          disabled={!active}
-          title={muted ? 'Activar micrófono' : 'Silenciar micrófono'}
-          aria-pressed={muted}
-        >
-          <Icon name={muted ? 'mic-off' : 'mic'} size={18} />
-        </button>
-        {video && (
-          <button
-            className={`icon-btn ${video.on ? 'icon-btn--danger' : ''}`}
-            onClick={video.toggle}
-            title={video.on ? 'Apagar cámara' : 'Encender cámara'}
-            aria-pressed={video.on}
-          >
-            {video.on ? '📷' : '🎥'}
-          </button>
-        )}
-        {screen && (
-          <button
-            className={`icon-btn ${screen.on ? 'icon-btn--danger' : ''}`}
-            onClick={screen.toggle}
-            title={screen.on ? 'Dejar de compartir pantalla' : 'Compartir pantalla'}
-            aria-pressed={screen.on}
-          >
-            <Icon name="screen" size={18} />
-          </button>
-        )}
-        <button className="icon-btn" onClick={onOpenSettings} title="Ajustes de audio y perfil">
+        <button className="icon-btn icon-btn--ghost voice-dock__gear" onClick={onOpenSettings} title="Ajustes de audio y perfil">
           <Icon name="gear" size={18} />
         </button>
-        {active ? (
-          <button className="voice-dock__main voice-dock__main--leave" onClick={handleLeave}>
-            Salir
-          </button>
-        ) : (
-          <button className="voice-dock__main voice-dock__main--join" onClick={handleJoin}>
-            Unirse
-          </button>
+      </div>
+
+      {!active && (
+        <button className="voice-dock__main voice-dock__main--join" onClick={handleJoin}>
+          <Icon name="mic" size={18} />
+          Unirse a la voz
+        </button>
+      )}
+
+      <div className={`voice-controls ${active ? 'voice-controls--4' : 'voice-controls--2'}`}>
+        {active && (
+          <>
+            <Control
+              icon={muted ? 'mic-off' : 'mic'}
+              label={muted ? 'Silenciado' : 'Micrófono'}
+              state={muted ? 'off' : undefined}
+              onClick={toggleMute}
+              title={muted ? 'Activar micrófono (Alt+M)' : 'Silenciar micrófono (Alt+M)'}
+            />
+            <Control
+              icon={deafened ? 'volume-off' : 'volume'}
+              label={deafened ? 'Sin audio' : 'Audio'}
+              state={deafened ? 'off' : undefined}
+              onClick={toggleDeafen}
+              title={deafened ? 'Volver a escuchar la llamada (Alt+D)' : 'Dejar de escuchar la llamada (Alt+D)'}
+            />
+          </>
+        )}
+        {video && (
+          <Control
+            icon="video"
+            label={cameraLabel}
+            state={cameraState}
+            onClick={video.toggle}
+            title={cameraTitle}
+          />
+        )}
+        {screen && (
+          <Control
+            icon="screen"
+            label={screen.on ? 'En vivo' : 'Pantalla'}
+            state={screenState}
+            onClick={screen.toggle}
+            title={screen.on ? 'Dejar de compartir pantalla' : 'Compartir pantalla'}
+          />
         )}
       </div>
+
+      {active && (
+        <button className="voice-dock__main voice-dock__main--leave" onClick={handleLeave}>
+          Salir de la voz
+        </button>
+      )}
     </section>
   );
 }

@@ -13,6 +13,8 @@ const DEFAULT_LAYOUT = {
   sidebarPosition: 'left',
   panels: { voice: true, connection: true, nodeInfo: true },
   video: DEFAULT_VIDEO,
+  iconPack: 'default',
+  icons: {},
 };
 
 // Un <style> por mod (tema y videollamada), identificado por id

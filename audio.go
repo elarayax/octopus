@@ -13,14 +13,21 @@ type AudioPrefs struct {
 }
 
 // maxAudioBuffered es cuánto audio puede quedar pendiente en un canal antes
-// de descartar el chunk nuevo. A 16 kHz × 16 bit son ~31 KB/s, así que 8 KB
-// equivalen a ~260 ms.
+// de descartar el chunk nuevo. Un stream de voz es ~45 KB/s (512 muestras a
+// 16 kHz en base64+JSON), así que 32 KB equivalen a ~700 ms.
 //
 // Por qué no un valor más bajo: `BufferedAmount` cuenta también lo enviado
-// pero aún no confirmado, así que en un enlace con RTT alto hay un "suelo"
-// de rate×RTT (p. ej. 3 KB con 100 ms). 8 KB deja margen para ese suelo sin
-// permitir que la voz se acumule medio segundo.
-const maxAudioBuffered = 8 * 1024
+// pero aún no confirmado, así que hay un "suelo" de tasa × RTT. En el host,
+// con 3 personas, el canal hacia un peer lleva el audio propio más el
+// reenviado del otro (≈90 KB/s); a 200 ms de RTT eso ya son ~18 KB de suelo.
+// Con 8 KB el umbral se superaba en cada ida y vuelta y se descartaban
+// chunks sin haber congestión real → la voz sonía robótica por los cortes
+// periódicos de 32 ms.
+//
+// 32 KB cubre ese suelo con margen (hasta ~350 ms de RTT con dos streams) y
+// solo se activa cuando el enlace de verdad no da abasto. El retaso acotado
+// real lo fija el video (`maxVideoBuffered`), no este umbral.
+const maxAudioBuffered = 32 * 1024
 
 // SetAudioPrefs persiste los volúmenes configurados en la UI
 func (a *App) SetAudioPrefs(micGain, playbackGain float64) {
@@ -53,10 +60,14 @@ func (a *App) SendAudio(audioB64 string) string {
 		return "No peers"
 	}
 
+	// `Code` es lo que permite al receptor identificar al hablante cuando el
+	// audio viaja reenviado por el host: sin él, el receptor lo atribuiría al
+	// peer directo (el host) y mezclaría dos voces en el mismo búfer.
 	pkt := Packet{
 		Type:   "audio",
 		Sender: currentUser,
 		Audio:  audioB64,
+		Code:   a.myCode,
 	}
 
 	data, err := json.Marshal(pkt)
@@ -65,6 +76,7 @@ func (a *App) SendAudio(audioB64 string) string {
 	}
 
 	str := string(data)
+	sent, dropped := 0, 0
 	for _, s := range sessions {
 		// Preferir el canal de audio (no fiable, baja latencia); si no está
 		// disponible, caer al canal de chat como respaldo.
@@ -80,10 +92,26 @@ func (a *App) SendAudio(audioB64 string) string {
 		// y la voz llega segundos tarde. Para voz en vivo es mejor perder el
 		// chunk que acumular retraso (el receptor también lo descartaría).
 		if ch.BufferedAmount() > maxAudioBuffered {
+			dropped++
 			continue
 		}
-		_ = ch.SendText(str)
+		if err := ch.SendText(str); err != nil {
+			dropped++
+			continue
+		}
+		sent++
 	}
 
+	// El resultado lo registra el frontend (rate-limited) para poder confirmar
+	// si un problema de voz viene del envío o de la reproducción.
+	if sent == 0 && dropped > 0 {
+		return "DROP_ALL"
+	}
+	if dropped > 0 {
+		return "DROP"
+	}
+	if sent == 0 {
+		return "No peers"
+	}
 	return "OK"
 }

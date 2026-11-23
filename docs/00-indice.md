@@ -28,7 +28,7 @@ main.go        (49 líneas)   Arranque de Wails
 app.go         (319 líneas)  Estado global + API para la UI
 webrtc.go      (~780 líneas) Identidad, señalización y conexiones P2P
 db.go          (~470 líneas) SQLite: canales, mensajes, directorio, config
-audio.go       (89 líneas)   Preferencias de audio + envío de voz
+audio.go       (117 líneas)  Preferencias de audio + envío de voz
 video.go       (56 líneas)   Envío de frames de cámara/pantalla
 avatar.go      (282 líneas)  Avatar e imágenes optimizadas a WebP
 chat_image.go  (76 líneas)   Envío de imágenes al chat

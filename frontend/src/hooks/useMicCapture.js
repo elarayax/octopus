@@ -22,6 +22,9 @@ export function useMicCapture({ gain, muted }) {
   const mutedRef = useRef(muted);
   // Muestras a 16 kHz que aún no completan un bloque de CHUNK_SIZE
   const pendingRef = useRef(new Float32Array(0));
+  // Rate-limit de los avisos de congestión: a 31 envíos/s un warn por chunk
+  // inundaría la consola y no se leería nada.
+  const lastDropLogRef = useRef(0);
 
   useEffect(() => {
     gainRef.current = gain;
@@ -43,7 +46,19 @@ export function useMicCapture({ gain, muted }) {
     updateMeter(meterRef.current, rms(input));
     const b64 = int16ToBase64(floatToInt16(input, gainRef.current));
     try {
-      Promise.resolve(SendAudio(b64)).catch((err) => console.error('SendAudio:', err));
+      Promise.resolve(SendAudio(b64))
+        .then((res) => {
+          // Diagnóstico: si el envío descarta chunks por congestión, la voz
+          // se corta en el receptor aunque el micrófono funcione bien.
+          if (res === 'DROP' || res === 'DROP_ALL') {
+            const now = Date.now();
+            if (now - lastDropLogRef.current > 3000) {
+              lastDropLogRef.current = now;
+              console.warn(`[audio] envío descartado por congestión (${res})`);
+            }
+          }
+        })
+        .catch((err) => console.error('SendAudio:', err));
     } catch (err) {
       console.error('SendAudio:', err);
     }

@@ -2,20 +2,59 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { SAMPLE_RATE, createAudioContext, base64ToFloat32 } from '../utils/audio';
 
-// Si la cola de audio pendiente supera ~150 ms (ráfagas, micro-cortes) se
-// descarta lo que aún no ha sonado y se retoma casi en vivo. El bloque que
-// está sonando NO se corta: cortarlo produce un chasquido.
-const MAX_LATENCY = 0.15;
+// Cada hablante remoto tiene su propio reloj de reproducción. El motivo es
+// importante: con 2 personas hay UNA fuente remota y un único búfer basta;
+// con 3 personas hay DOS fuentes y, si comparten el mismo `nextTime`, el
+// receptor recibe el doble de audio del que puede sonar en tiempo real (2 ×
+// 32 ms por cada 32 ms reales). La cola crece 32 ms por cada 32 ms y en
+// ~5 bloques supera MAX_LATENCY → se vacía y se vuelve a llenar en bucle →
+// cortes periódicos de 32 ms que suenan robóticos.
+//
+// Por qué un umbral y no dejar crecer: en una llamada de voz el retraso
+// acumulado no se puede "recuperar" más que descartando. Pero ahora cada
+// búfer avanza al ritmo real de su hablante, así que en régimen estable
+// `nextTime` solo se mantiene ~START_OFFSET por delante de `now` y no se
+// descarta nada.
+const MAX_LATENCY = 0.18; // cola objetivo por hablante (~180 ms)
+const HARD_RESET = 0.5; // por encima: algo fue mal; reiniciar ese búfer
 const START_OFFSET = 0.03;
+
+/** Detiene las fuentes de un búfer que aún no han empezado a sonar */
+function dropPending(buf, now) {
+  const keep = [];
+  for (const item of buf.sources) {
+    if (item.start > now) {
+      try {
+        item.src.stop();
+      } catch {
+        /* ya terminó */
+      }
+    } else {
+      keep.push(item);
+    }
+  }
+  buf.sources = keep;
+}
+
+/** Detiene todas las fuentes programadas de un búfer */
+function stopSources(buf) {
+  for (const item of buf.sources) {
+    try {
+      item.src.stop();
+    } catch {
+      /* ya terminó */
+    }
+  }
+  buf.sources = [];
+}
 
 export function useAudioPlayback(gain) {
   const [remoteSpeaking, setRemoteSpeaking] = useState(false);
   const ctxRef = useRef(null);
   const gainNodeRef = useRef(null);
-  const nextTimeRef = useRef(0);
-  const startedRef = useRef(false);
-  // [{ src, start }] de las fuentes programadas y aún no terminadas
-  const sourcesRef = useRef([]);
+  // Map<código de hablante, { nextTime, started, sources: [] }>
+  const bufsRef = useRef(new Map());
+  const speakingRef = useRef(false);
   const speakingTimerRef = useRef(null);
   const gainRef = useRef(gain);
 
@@ -27,47 +66,25 @@ export function useAudioPlayback(gain) {
 
     ctxRef.current = ctx;
     gainNodeRef.current = gainNode;
-    nextTimeRef.current = 0;
-    startedRef.current = false;
-    sourcesRef.current = [];
+    bufsRef.current = new Map();
 
-    // Descarta lo agendado que todavía no ha empezado a sonar.
-    // Web Audio no cancela solo lo que está en el futuro: sin este stop(),
-    // al re-sincronizar el bloque nuevo sonaría ENCIMA del anterior (eco).
-    const dropPending = (now) => {
-      const keep = [];
-      for (const item of sourcesRef.current) {
-        if (item.start > now) {
-          try {
-            item.src.stop();
-          } catch {
-            /* ya terminó */
-          }
-        } else {
-          keep.push(item);
-        }
+    const markSpeaking = () => {
+      if (!speakingRef.current) {
+        speakingRef.current = true;
+        setRemoteSpeaking(true);
       }
-      sourcesRef.current = keep;
+      clearTimeout(speakingTimerRef.current);
+      speakingTimerRef.current = setTimeout(() => {
+        speakingRef.current = false;
+        setRemoteSpeaking(false);
+      }, 500);
     };
 
-    const stopAll = () => {
-      for (const item of sourcesRef.current) {
-        try {
-          item.src.stop();
-        } catch {
-          /* ya terminó */
-        }
-      }
-      sourcesRef.current = [];
-    };
-
-    const off = EventsOn('receive_audio', (b64) => {
+    const off = EventsOn('receive_audio', (code, b64) => {
       try {
         if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
-        setRemoteSpeaking(true);
-        clearTimeout(speakingTimerRef.current);
-        speakingTimerRef.current = setTimeout(() => setRemoteSpeaking(false), 500);
+        markSpeaking();
 
         const samples = base64ToFloat32(b64);
         if (!samples.length) return;
@@ -81,38 +98,67 @@ export function useAudioPlayback(gain) {
         src.buffer = buffer;
         src.connect(gainNode);
 
-        const now = ctx.currentTime;
-        if (!startedRef.current) {
-          // Primera muestra tras unirnos: fijar la referencia temporal.
-          startedRef.current = true;
-          nextTimeRef.current = now + START_OFFSET;
-        } else if (nextTimeRef.current < now) {
-          // Nos pasó el turno (pérdida o silencio): reenganchar sin hueco.
-          nextTimeRef.current = now + START_OFFSET;
-        } else if (nextTimeRef.current - now > MAX_LATENCY) {
-          // Cola acumulada: tirar lo que aún no ha sonado y saltar al
-          // presente. Es preferible un corte corto a arrastrar el retraso.
-          dropPending(now);
-          nextTimeRef.current = now + START_OFFSET;
+        // Cada hablante tiene su reloj; el mismo emisor reutiliza el suyo.
+        let buf = bufsRef.current.get(code);
+        if (!buf) {
+          buf = { nextTime: 0, started: false, sources: [] };
+          bufsRef.current.set(code, buf);
         }
 
-        const start = nextTimeRef.current;
-        src.start(start);
-        nextTimeRef.current = start + buffer.duration;
+        const now = ctx.currentTime;
+        if (!buf.started) {
+          // Primera muestra de este hablante: fijar su referencia temporal.
+          buf.started = true;
+          buf.nextTime = now + START_OFFSET;
+        } else if (buf.nextTime < now) {
+          // Se quedó atrás (pérdida, silencio o pausa larga): reenganchar
+          // sin hueco. No hay nada agendado que valga la pena conservar.
+          buf.nextTime = now + START_OFFSET;
+        } else if (buf.nextTime - now > HARD_RESET) {
+          // Cola absurda (p. ej. el hilo principal se bloqueó varios
+          // segundos): aquí sí conviene tirar lo pendiente y empezar de cero,
+          // aunque eso deje un hueco.
+          dropPending(buf, now);
+          buf.nextTime = now + START_OFFSET;
+          console.warn(`[audio] re-sincronización dura del hablante ${code}`);
+        } else if (buf.nextTime - now > MAX_LATENCY) {
+          // Cola llena (ráfaga de bloques): descartar ESTE bloque y no tocar
+          // lo ya agendado. Lo ya agendado suena seguido; descartarlo (como
+          // se hacía antes) creaba un hueco de 32 ms con ritmo fijo.
+          return;
+        }
 
-        sourcesRef.current.push({ src, start });
+        const start = buf.nextTime;
+        src.start(start);
+        buf.nextTime = start + buffer.duration;
+        buf.sources.push({ src, start });
         src.onended = () => {
-          sourcesRef.current = sourcesRef.current.filter((it) => it.src !== src);
+          buf.sources = buf.sources.filter((it) => it.src !== src);
         };
       } catch (err) {
         console.error('Error procesando audio recibido:', err);
       }
     });
 
+    // Limpieza al irse un peer: si no, su búfer quedaría con un reloj viejo
+    // y, si vuelve con el mismo código, arrancaría con atraso heredado.
+    const forgetSpeaker = (code) => {
+      const buf = bufsRef.current.get(code);
+      if (buf) {
+        stopSources(buf);
+        bufsRef.current.delete(code);
+      }
+    };
+    const offLeft = EventsOn('voice_peer_left', forgetSpeaker);
+    const offDisc = EventsOn('peer_disconnected', forgetSpeaker);
+
     return () => {
       off();
+      offLeft();
+      offDisc();
       clearTimeout(speakingTimerRef.current);
-      stopAll();
+      for (const buf of bufsRef.current.values()) stopSources(buf);
+      bufsRef.current.clear();
       ctx.close();
     };
   }, []);
@@ -128,17 +174,12 @@ export function useAudioPlayback(gain) {
     const ctx = ctxRef.current;
     if (!ctx) return;
     if (ctx.state === 'suspended') await ctx.resume();
-    // No heredar atraso de una llamada anterior.
-    for (const item of sourcesRef.current) {
-      try {
-        item.src.stop();
-      } catch {
-        /* ya terminó */
-      }
+    // No heredar atraso de una llamada anterior: cada hablante arranca limpio.
+    for (const buf of bufsRef.current.values()) {
+      stopSources(buf);
+      buf.nextTime = ctx.currentTime + START_OFFSET;
+      buf.started = true;
     }
-    sourcesRef.current = [];
-    nextTimeRef.current = ctx.currentTime + START_OFFSET;
-    startedRef.current = true;
   }, []);
 
   return { remoteSpeaking, resume };

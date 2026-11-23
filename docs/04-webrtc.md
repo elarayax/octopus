@@ -455,7 +455,7 @@ El `switch` cubre:
 
 | Tipo | Qué hace |
 |------|----------|
-| `audio` | reemite el audio a la UI (`receive_audio`) |
+| `audio` | reemite el audio a la UI (`receive_audio`) **con el código del hablante** |
 | `hello` | marca presente, registra en el directorio, avisa a la UI |
 | `avatar` | idem + guarda la imagen |
 | `roster` | registra un miembro (sin pisar la presencia de un peer directo) |

@@ -429,7 +429,9 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 
 	switch pkt.Type {
 	case "audio":
-		runtime.EventsEmit(a.ctx, "receive_audio", pkt.Audio)
+		// Se emite junto al código del hablante: cada voz necesita su propio
+		// búfer de reproducción en el frontend (ver useAudioPlayback).
+		runtime.EventsEmit(a.ctx, "receive_audio", code, pkt.Audio)
 
 	case "video":
 		runtime.EventsEmit(a.ctx, "receive_video", pkt.Sender, pkt.Video, pkt.Kind)

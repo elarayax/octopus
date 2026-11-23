@@ -610,6 +610,93 @@ worklet @48000: emitidas 16000 (esperado 16000), bloques de 512: 31
   `BufferedAmount()` es la señal para decidir qué tirar.
 - **No hacer I/O con un mutex global tomado**, y menos en el relay.
 
+## 10. Voz robótica con 3 personas
+
+### Síntoma
+
+Con **dos** personas la llamada suena normal. Al entrar una **tercera**, la
+voz de todos suena robótica/metalizada (un zumbido con ritmo fijo), aunque el
+micrófono, el muestreo y la red están bien.
+
+### Causa 1: un solo búfer de reproducción para todos los hablantes
+
+`useAudioPlayback` tenía **un único reloj** de reproducción (`nextTimeRef`)
+para todo el audio recibido. Cada emisor manda 32 ms de audio cada 32 ms:
+
+- **Con dos personas** hay UNA fuente remota → llegan 32 ms por cada 32 ms
+  reales → la cola se mantiene ~30 ms y no se descarta nada.
+- **Con tres personas** hay DOS fuentes → llegan 64 ms por cada 32 ms → la
+  cola crece 32 ms por cada 32 ms reales y en ~5 bloques toca `MAX_LATENCY`
+  → se vacía y se vuelve a llenar en bucle.
+
+Resultado: se descartaba **~50 % del audio** a casi un bloque de 32 ms de
+cada dos. Ese corte periódico es exactamente lo que se oye como "robótico".
+
+Simulación (10 s, 2 emisores, 625 bloques llegados):
+
+| | Búfer único | Búfer por hablante |
+|---|---|---|
+| Bloques descartados | **308 (≈50 %)** | **0** |
+| Retraso en régimen | 190 ms (fijo, sobre el umbral) | 62 / 46 ms |
+
+**Por qué el video no fallaba**: `receive_video` ya lleva el nombre del
+emisor y la UI mantiene un `<video>` por persona. El audio era el único que
+agrupaba a todos en la misma cola.
+
+### Causa 2: el umbral de envío estaba demasiado bajo
+
+Añadido en el fix anterior (`maxAudioBuffered = 8 KB`): `BufferedAmount()`
+incluye lo enviado pero **aún no confirmado**, así que siempre hay un suelo
+de `tasa × RTT`. En el host con 3 personas, el canal hacia un peer lleva el
+audio propio más el reenviado del otro (≈90 KB/s); a 200 ms de RTT eso ya son
+~18 KB de suelo. Con el umbral en 8 KB se superaba en cada ida y vuelta y se
+descartaban chunks **sin congestión real** → el mismo síntoma, por otro lado.
+
+### El fix
+
+1. **`receive_audio` lleva ahora el código del hablante**
+   (`EventsEmit("receive_audio", code, pkt.Audio)`) y `SendAudio` incluye
+   `Code: a.myCode` en el paquete, para que el audio **reenviado por el
+   host** conserve la identidad del emisor original.
+2. **`useAudioPlayback` mantiene un búfer por hablante**
+   (`Map<código, { nextTime, started, sources }>`), igual que ya hacía el
+   video con `receive_video`.
+3. **La política de desbordamiento ya no vacía la cola**: si `nextTime` pasa
+   de `MAX_LATENCY` (180 ms) se descarta **el bloque nuevo** y no se toca lo
+   ya agendado (lo agendado suena seguido; vaciarlo creaba el hueco con ritmo
+   fijo). Solo `HARD_RESET` (500 ms) vacía ese búfer, para recuperarse de un
+   bloqueo largo del hilo principal.
+4. **`maxAudioBuffered` subió a 32 KB** para cubrir el suelo de `tasa × RTT`
+   de dos streams con margen.
+5. **Limpieza al irse un peer** (`voice_peer_left`, `peer_disconnected`) para
+   no heredar atraso si vuelve con el mismo código.
+
+### Cómo verificarlo
+
+1. Entrar **tres** personas y hablar todos a la vez: la voz debe sonar
+   natural, sin zumbido.
+2. Consola (`wails dev`):
+   - `[audio] envío descartado por congestión (DROP)` → problema de **envío**
+     (congestión del canal). No debería aparecer en un enlace sano.
+   - `[audio] re-sincronización dura del hablante <código>` → problema de
+     **reproducción** (el hilo principal se bloqueó). Ocasional es normal;
+     repetido, hay que mirar la carga de la UI.
+3. Quedarse en **dos** personas y comprobar que sigue sonando igual de bien
+   (no había regresión).
+
+### Lecciones
+
+- **Un búfer de reproducción por emisor, no uno compartido.** La regla es
+  simple: si el evento lleva la identidad de quien habla, el búfer también
+  tiene que llevarla.
+- **`BufferedAmount()` no es "congestión": es `tasa × RTT` + cola.** Un umbral
+  fijo demasiado bajo se dispara en enlaces sanos; hay que dimensionarlo con
+  la cantidad de streams que comparten el canal.
+- **Descartar el bloque nuevo es mejor que vaciar la cola.** Vaciar deja un
+  hueco; descartar acota el retraso y deja el sonido continuo.
+- **Cuando un síntoma aparece al pasar de 2 a 3 personas, sospecha de algo
+  particionado por "quién habla"** (búfer, cola, indicador).
+
 | Síntoma | Dónde mirar primero | Truco |
 |---------|--------------------|-------|
 | Error de la librería estándar | el código de la app que la usa | `grep` el mensaje en el código de Go |
@@ -619,3 +706,4 @@ worklet @48000: emitidas 16000 (esperado 16000), bloques de 512: 31
 | Conexión que no se establece | ICE (candidatos) **y** señalización | test end-to-end con dos peers |
 | Fantasmas/residuos en una animación | el método de *disposal* del archivo | `webpmux -info` y comparar con libwebp |
 | Voz entrecortada o con retraso | la tasa de muestreo y la cola del canal | consola `[audio]` + `BufferedAmount()` |
+| Voz robótica con 3+ personas | quién comparte el búfer de reproducción | simular el ritmo de llegada por emisor |

@@ -1,6 +1,6 @@
 # `audio.go` — Volúmenes y envío de voz
 
-71 líneas. Dos responsabilidades: recordar los volúmenes configurados por el
+117 líneas. Dos responsabilidades: recordar los volúmenes configurados por el
 usuario, y enviar los chunks de audio a los peers.
 
 ## `AudioPrefs`
@@ -56,14 +56,17 @@ corrupto (o no existe), se conserva el default en vez de dejar el volumen en
 ## `SendAudio(audioB64 string) string`
 
 ```go
+// `Code` identifica al hablante cuando el audio viaja reenviado por el host
 pkt := Packet{
     Type:   "audio",
     Sender: currentUser,
     Audio:  audioB64,
+    Code:   a.myCode,
 }
 data, err := json.Marshal(pkt)
 str := string(data)
 
+sent, dropped := 0, 0
 for _, s := range sessions {
     // Preferir el canal de audio (no fiable, baja latencia)
     ch := s.dca
@@ -75,10 +78,20 @@ for _, s := range sessions {
     }
     // Backpressure: si el canal va atrasado, el chunk ya es viejo
     if ch.BufferedAmount() > maxAudioBuffered {
+        dropped++
         continue
     }
-    ch.SendText(str)
+    if err := ch.SendText(str); err != nil {
+        dropped++
+        continue
+    }
+    sent++
 }
+
+if sent == 0 && dropped > 0 { return "DROP_ALL" }
+if dropped > 0              { return "DROP" }
+if sent == 0                { return "No peers" }
+return "OK"
 ```
 
 **El flujo completo del audio**:
@@ -93,7 +106,7 @@ DataChannel "audio"             ← no fiable, sin orden
     ↓ red
 Peer remoto: handlePacket("audio")
     ↓
-runtime.EventsEmit("receive_audio", pkt.Audio)
+runtime.EventsEmit("receive_audio", code, pkt.Audio)
     ↓
 El frontend lo decodifica y lo reproduce
 ```
@@ -110,14 +123,22 @@ retraso. En ese caso se descarta el chunk.
 **Por qué `Packet` con `Sender`**: el frontend necesita saber a quién pertenece
 la voz para mostrar un indicador de "hablando".
 
-**Por qué el return es "OK"/"No peers"/"Error"**: la UI lo muestra como
-notificación. Es un string porque Wails_bindings serializan strings
-simplemente.
+**Por qué además `Code`**: `Sender` es el nombre de usuario (cambia, y es lo
+que muestra la UI), mientras que `Code` es la identidad fija. El campo es
+**imprescindible en el relay**: el host reenvía el audio a los demás, y sin
+`Code` el receptor atribuiría esa voz al peer directo (el host). Con dos
+hablantes en el mismo búfer, la voz volvería a sonar robótica. Ver
+[bug #10](11-bugs-corregidos.md#10-voz-robótica-con-3-personas).
+
+**Por qué el return distingue `DROP`/`DROP_ALL`**: el frontend registra esas
+devoluciones (rate-limited en la consola) para poder separar un problema de
+**envío** (congestión del canal) de uno de **reproducción** (búfer). Sin esa
+señal, "suena robótico" no dice de qué lado viene.
 
 ## Backpressure: descartar en vez de acumular
 
 ```go
-const maxAudioBuffered = 8 * 1024 // ~260 ms a 31 KB/s
+const maxAudioBuffered = 32 * 1024 // ~700 ms a 45 KB/s
 ```
 
 **El problema que resuelve**: los envíos de pion/WebRTC **no bloquean**. Cada
@@ -128,14 +149,22 @@ síntoma típico es "no se me escucha" cuando en realidad el audio sí sale, per
 llega tarde.
 
 **Por qué `BufferedAmount()`**: es lo que queda por confirmar en ese canal
-(pendiente + en vuelo). Si supera ~260 ms de audio, el chunk nuevo ya no sirve
+(pendiente + en vuelo). Si supera ~700 ms de audio, el chunk nuevo ya no sirve
 para conversar. Perder 32 ms de voz es preferible a arrastrar medio segundo de
 retraso.
 
-**Por qué 8 KB y no 2 KB**: `BufferedAmount` incluye lo enviado pero aún no
-confirmado, así que en un enlace con RTT alto hay un suelo de `tasa × RTT`
-(≈3 KB con 100 ms). 8 KB deja margen para ese suelo sin permitir que la voz se
-acumule.
+**Por qué 32 KB y no 8 KB**: `BufferedAmount` incluye lo enviado pero aún no
+confirmado, así que siempre hay un suelo de `tasa × RTT`. Ese suelo **crece
+con el número de streams**: el canal hacia un peer lleva el audio propio más
+el reenviado del otro (≈90 KB/s en el host con 3 personas), y a 200 ms de RTT
+ya son ~18 KB. Con el umbral de 8 KB el suelo se superaba en cada ida y
+vuelta y se descartaban chunks **sin congestión real** → cortes periódicos de
+32 ms → voz robótica. 32 KB cubre el suelo con margen y solo salta cuando el
+enlace de verdad no da abasto.
+
+**El retaso acotado real lo fija el video**, no este umbral: el video se
+descarta mucho antes (`maxVideoBuffered`), así que la cola de la asociación
+queda corta y la voz no arrastra segundos.
 
 **El mismo criterio se aplica al video** (`video.go`, `maxVideoBuffered`),
 porque audio y video comparten la misma asociación SCTP: un frame grande
@@ -178,17 +207,48 @@ resultado tiene que ser idéntico, o el bug del muestreo vuelve.
 
 ## El búfer de reproducción (jitter buffer)
 
-`useAudioPlayback` programa cada bloque con `BufferSource.start(nextTime)`:
+`useAudioPlayback` programa cada bloque con `BufferSource.start(nextTime)`.
+**La clave es que `nextTime` es por hablante**: hay un `Map<código, búfer>`
+en vez de un único reloj compartido.
+
+```
+receive_audio(código, base64)
+    ↓
+buf = bufsRef.get(código)   ← un búfer por hablante
+    ↓
+buf.nextTime = ...           ← el reloj de ESE hablante
+```
 
 - `nextTime` empieza en `now + 30 ms` (margen para el primero).
-- Si `nextTime` se quedó atrás (pérdida o silencio), se reengancha a
-  `now + 30 ms`.
-- Si se adelantó más de 150 ms (ráfaga acumulada), se **descartan las fuentes
-  aún no reproducidas** y se salta al presente. El bloque que está sonando no
-  se corta (cortarlo produce un chasquido). Sin descartar lo pendiente, el
-  bloque nuevo sonaría encima del anterior (eco) y el retraso seguiría creciendo.
+- Si `nextTime` se quedó atrás (pérdida, silencio o pausa larga), se
+  reengancha a `now + 30 ms`.
+- Si `nextTime` supera `MAX_LATENCY` (180 ms), se **descarta el bloque
+  nuevo** y no se toca lo ya agendado. Lo agendado suena seguido; descartarlo
+  crearía un hueco de 32 ms con ritmo fijo (ese era el zumbido robótico).
+- Si supera `HARD_RESET` (500 ms) —algo fue muy mal, p. ej. el hilo principal
+  se bloqueó varios segundos— se vacía ese búfer y se reengancha. Aquí sí
+  conviene aceptar el hueco.
 - El `AudioBuffer` se declara siempre a 16 kHz: el navegador lo remuestrea a
   la tasa real del contexto al reproducirlo.
+- Al irse un peer (`voice_peer_left` / `peer_disconnected`) su búfer se
+  elimina, para no heredar atraso si vuelve con el mismo código.
+
+**Por qué un búfer por hablante y no uno solo**: cada emisor manda 32 ms de
+audio cada 32 ms. Con **una** fuente remota eso es tiempo real y un único
+búfer basta. Con **dos** (3 personas) el receptor recibe el doble de lo que
+puede sonar: la cola crece 32 ms por cada 32 ms reales y en ~5 bloques toca
+el umbral → se vacía y se llena en bucle → se descarta **la mitad del audio**
+a ritmo fijo. La simulación lo confirma:
+
+| | Búfer único | Búfer por hablante |
+|---|---|---|
+| Bloques llegados (10 s, 2 emisores) | 625 | 625 |
+| Bloques descartados | **308 (≈50 %)** | **0** |
+| Retraso en régimen | 190 ms (fijo, sobre el umbral) | 62 / 46 ms |
+
+Con dos personas (una fuente remota) el búfer único funcionaba; por eso el
+solo se rompía a partir de tres. Ver
+[bug #10](11-bugs-corregidos.md#10-voz-robótica-con-3-personas).
 
 ## Detalles que conviene saber
 

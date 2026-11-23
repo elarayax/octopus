@@ -43,7 +43,7 @@ React  ◄──evento───  Go                (runtime.EventsEmit)
 | `peer_disconnected` | se pierde un peer | `string` (código) |
 | `peer_info` | llega un `hello`/`avatar`/`roster`/`bye` | `UserEntry` |
 | `receive_message` | mensaje de texto o imagen | `Message` |
-| `receive_audio` | chunk de voz | `string` (base64) |
+| `receive_audio` | chunk de voz | `string` (código del hablante), `string` (base64) |
 | `history_synced` | se fusionó un historial | `int` (nº de mensajes) |
 | `channel_info` | cambió la identidad del canal | `ChannelInfo` |
 | `channel_switched` | se cambió de canal | `string` (código) |

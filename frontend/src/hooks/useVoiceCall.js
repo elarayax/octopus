@@ -1,11 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
-import { SetCallState } from '../../wailsjs/go/main/App';
+import { SetCallState, SetVoicePresence, SetVoiceFlags } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { useAudioPrefs } from './useAudioPrefs';
 import { useAudioDevices } from './useAudioDevices';
 import { useAudioPlayback } from './useAudioPlayback';
 import { useMicCapture } from './useMicCapture';
-import { SetVoicePresence } from '../../wailsjs/go/main/App';
 
 export function useVoiceCall({ notify }) {
   const prefs = useAudioPrefs();
@@ -18,23 +17,38 @@ export function useVoiceCall({ notify }) {
   const [muted, setMuted] = useState(false);
   const mic = useMicCapture({ gain: prefs.micGain, muted });
 
-  // Nombres de los demás que están en la llamada (llegan por el evento call_state).
-  // Quien se desconecta del todo se filtra en la UI con la lista de usuarios online.
+  // Los demás que están en la llamada, con su estado de micrófono/audio:
+  // { [nombre]: { muted: bool, deafened: bool } }
+  // Llegan por el evento call_state. Quien se desconecta del todo se filtra
+  // en la UI con la lista de usuarios online.
   const [members, setMembers] = useState({});
   useEffect(
     () =>
-      EventsOn('call_state', (name, inCall) => {
+      EventsOn('call_state', (name, inCall, isMuted, isDeafened) => {
         if (!name) return;
         setMembers((prev) => {
-          if (!!prev[name] === !!inCall) return prev;
-          const next = { ...prev };
-          if (inCall) next[name] = true;
-          else delete next[name];
-          return next;
+          if (!inCall) {
+            if (!prev[name]) return prev;
+            const next = { ...prev };
+            delete next[name];
+            return next;
+          }
+          const m = !!isMuted;
+          const d = !!isDeafened;
+          const cur = prev[name];
+          if (cur && cur.muted === m && cur.deafened === d) return prev;
+          return { ...prev, [name]: { muted: m, deafened: d } };
         });
       }),
     []
   );
+
+  // Envía tu propio estado a los demás cada vez que cambia mientras estás en la llamada.
+  // Al unirse corre después de SetCallState(true); al salir, Go limpia las banderas.
+  useEffect(() => {
+    if (!active) return;
+    SetVoiceFlags(muted, deafened).catch((err) => console.error('SetVoiceFlags:', err));
+  }, [active, muted, deafened]);
 
   const join = useCallback(async () => {
     try {
@@ -79,6 +93,7 @@ export function useVoiceCall({ notify }) {
     muted,
     deafened,
     members: Object.keys(members),
+    voiceStates: members,
     remoteSpeaking: playback.remoteSpeaking,
     devices: devices.devices,
     selectedId: devices.selectedId,

@@ -43,6 +43,13 @@ export function useP2P({ notify }) {
     };
   }, []);
 
+  // Sin peers conectados ya no estamos "en línea" (p. ej. tras abandonar el último canal)
+  useEffect(() => {
+    if (peers.length === 0) {
+      setStatus((current) => (current === STATUS.ONLINE ? STATUS.LISTENING : current));
+    }
+  }, [peers]);
+
   const startServer = useCallback(async () => {
     setStatus(STATUS.LISTENING);
     try {

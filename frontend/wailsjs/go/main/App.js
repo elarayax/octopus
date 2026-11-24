@@ -6,6 +6,10 @@ export function ConnectToPeer(arg1) {
   return window['go']['main']['App']['ConnectToPeer'](arg1);
 }
 
+export function DeleteChannel(arg1) {
+  return window['go']['main']['App']['DeleteChannel'](arg1);
+}
+
 export function GetAudioPrefs() {
   return window['go']['main']['App']['GetAudioPrefs']();
 }
@@ -48,6 +52,10 @@ export function GetUsername() {
 
 export function GetUsers() {
   return window['go']['main']['App']['GetUsers']();
+}
+
+export function LeaveChannel(arg1) {
+  return window['go']['main']['App']['LeaveChannel'](arg1);
 }
 
 export function LoadCustomCSS() {
@@ -116,6 +124,10 @@ export function SetUnread(arg1) {
 
 export function SetUsername(arg1) {
   return window['go']['main']['App']['SetUsername'](arg1);
+}
+
+export function SetVoiceFlags(arg1, arg2) {
+  return window['go']['main']['App']['SetVoiceFlags'](arg1, arg2);
 }
 
 export function SetVoicePresence(arg1) {

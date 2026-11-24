@@ -215,6 +215,66 @@ func (a *App) upsertCanal(codigo, nombre, subtitulo, icono string) int {
 	return id
 }
 
+// canalIDByCodigo devuelve el id del canal con ese código, o 0 si no existe.
+// A diferencia de getCanalByCodigo NO cae al canal activo cuando no lo
+// encuentra, así que es seguro usarlo antes de borrar.
+func (a *App) canalIDByCodigo(codigo string) int {
+	if a.db == nil || codigo == "" {
+		return 0
+	}
+	var id int
+	if err := a.db.QueryRow(`SELECT id FROM canal WHERE codigo = ?`, codigo).Scan(&id); err != nil {
+		return 0
+	}
+	return id
+}
+
+// deleteCanal borra un canal y todo lo que cuelga de él (mensajes, reacciones
+// y posts de foro con sus comentarios) en una sola transacción. Se borra de
+// forma explícita en vez de confiar solo en ON DELETE CASCADE: las reacciones
+// no tienen clave foránea y las bases de datos antiguas pueden no tener el
+// cascade en sus tablas.
+func (a *App) deleteCanal(id int) error {
+	if a.db == nil || id == 0 {
+		return fmt.Errorf("canal inválido")
+	}
+	tx, err := a.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op tras un Commit correcto
+
+	stmts := []string{
+		`DELETE FROM reaccion WHERE msg_uid IN (SELECT uid FROM mensaje WHERE id_canal = ? AND uid IS NOT NULL)`,
+		`DELETE FROM foro_comentario WHERE id_post IN (SELECT id FROM foro_post WHERE id_canal = ?)`,
+		`DELETE FROM foro_post WHERE id_canal = ?`,
+		`DELETE FROM mensaje WHERE id_canal = ?`,
+		`DELETE FROM canal WHERE id = ?`,
+	}
+	for _, q := range stmts {
+		if _, err := tx.Exec(q, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// fallbackCanal elige a qué canal pasar cuando se borra el activo: el usado
+// más recientemente. Si no queda ninguno, recrea el canal LOCAL.
+func (a *App) fallbackCanal() (int, string) {
+	var id int
+	var codigo string
+	err := a.db.QueryRow(`SELECT id, codigo FROM canal ORDER BY ultima_vez DESC, id DESC LIMIT 1`).Scan(&id, &codigo)
+	if err == nil && id > 0 {
+		return id, codigo
+	}
+	_, _ = a.db.Exec(`INSERT OR IGNORE INTO canal (id, codigo, nombre) VALUES (1, 'LOCAL', 'Canal local')`)
+	if id = a.canalIDByCodigo("LOCAL"); id == 0 {
+		id = 1
+	}
+	return id, "LOCAL"
+}
+
 // updateCanalInfo actualiza nombre/subtítulo/icono del canal actual
 func (a *App) updateCanalInfo(id int, nombre, subtitulo, icono string) {
 	if a.db == nil || id == 0 {

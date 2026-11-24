@@ -507,8 +507,7 @@ func (a *App) handlePacket(remoteID string, pkt Packet) {
 			delete(a.callSet, code)
 		}
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "call_state", pkt.Sender, pkt.Online)
-
+		runtime.EventsEmit(a.ctx, "call_state", pkt.Sender, pkt.Online, pkt.Muted, pkt.Deafened)
 	case "reaction":
 		a.applyReaction(pkt.MsgID, pkt.Sender, pkt.Emoji, pkt.Add)
 
@@ -870,7 +869,7 @@ func (a *App) ConnectToPeer(input string) string {
 	a.mu.Unlock()
 
 	if myCode == "" {
-		return "Debes iniciar el servidor primero para activar tu ID fijo."
+		return "Debes iniciar el servidor antes de conectarte a un canal. Abre «Menú» → «Iniciar servidor…», pulsa «Iniciar con esta identidad» y vuelve a pulsar Play."
 	}
 
 	if target == myCode {

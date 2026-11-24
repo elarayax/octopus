@@ -106,6 +106,8 @@ const PATHS = {
   ),
   hash: <path d="M5 9h15M4 15h15M10 4L8 20M16 4l-2 16" />,
   'arrow-down': <path d="M12 5v14M6 13l6 6 6-6" />,
+  logout: <path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9" />,
+  trash: <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4h6v3" />,
 };
 
 // Pack "emoji": cada ícono se reemplaza por un glifo (los mods pueden mezclar con `icons`).
@@ -113,7 +115,7 @@ const EMOJI_PACK = {
   mic: '🎙️', 'mic-off': '🔇', gear: '⚙️', clip: '📎', search: '🔍', bars: '📊', user: '👤',
   server: '🖥️', refresh: '🔄', folder: '📁', play: '▶️', close: '✖️', screen: '🖵', reply: '↩️',
   smile: '😊', image: '🖼️', bell: '🔔', 'bell-off': '🔕', volume: '🔊', 'volume-off': '🔈',
-  video: '📹', 'video-off': '🚫', users: '👥', hash: '#️⃣', 'arrow-down': '⬇️',
+  video: '📹', 'video-off': '🚫', users: '👥', hash: '#️⃣', 'arrow-down': '⬇️', logout: '🚪', trash: '🗑️',
 };
 
 // Packs de estilo: solo cambian el trazo (el dibujo es el mismo).

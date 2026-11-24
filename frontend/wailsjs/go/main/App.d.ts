@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function ConnectToPeer(arg1:string):Promise<string>;
 
+export function DeleteChannel(arg1:string):Promise<string>;
+
 export function GetAudioPrefs():Promise<main.AudioPrefs>;
 
 export function GetAvatar():Promise<string>;
@@ -25,6 +27,8 @@ export function GetPersonalChannelCode():Promise<string>;
 export function GetUsername():Promise<string>;
 
 export function GetUsers():Promise<Array<main.UserEntry>>;
+
+export function LeaveChannel(arg1:string):Promise<string>;
 
 export function LoadCustomCSS():Promise<string>;
 
@@ -59,6 +63,8 @@ export function SetChannelInfo(arg1:string,arg2:string,arg3:string):Promise<main
 export function SetUnread(arg1:number):Promise<void>;
 
 export function SetUsername(arg1:string):Promise<string>;
+
+export function SetVoiceFlags(arg1:boolean,arg2:boolean):Promise<string>;
 
 export function SetVoicePresence(arg1:boolean):Promise<void>;
 

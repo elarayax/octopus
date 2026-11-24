@@ -58,11 +58,41 @@
   left: 8px;
   bottom: 6px;
   z-index: 2;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   padding: 2px 8px;
   font-size: 12px;
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
   border-radius: 999px;
+}
+
+/* Íconos de micrófono / audio silenciado (esquina superior derecha de la tarjeta) */
+.video-tile__flags {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+.video-tile__flag {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: #fff;
+  background: var(--color-danger, #e0485a);
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+/* Tarjetas redondas: las esquinas se recortan, así que van arriba al centro */
+.video-stage[data-shape="circle"]:not([data-focus="true"]) .video-tile__flags {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .video-stage .video-stage__camera {
@@ -72,6 +102,15 @@
   min-width: 240px;
   max-width: min(100%, 340px);
 }
+
+/* ---------- Vista normal compacta (muchas personas) ---------- */
+.video-stage[data-mode="grid"][data-compact="true"] {
+  grid-template-columns: repeat(auto-fill, 128px);
+  gap: 6px;
+}
+.video-stage[data-compact="true"] .screen-card { grid-column: span 3; }
+.video-stage[data-compact="true"] .video-tile__name { font-size: 11px; }
+.video-stage[data-compact="true"] .video-tile__flag { width: 20px; height: 20px; }
 
 /* ---------- Tarjeta de transmisión (estilo Discord) ----------
    Usa clases propias (.screen-*): los mods de cámara no la afectan. */
@@ -94,6 +133,10 @@
   left: 8px;
   bottom: 6px;
   z-index: 2;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   padding: 2px 8px;
   font-size: 12px;
   color: #fff;
@@ -234,20 +277,26 @@
   cursor: default;
 }
 
-/* Tira de miniaturas */
+/* Tira de miniaturas: una sola fila con scroll horizontal */
 .video-strip {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   align-items: flex-start;
   gap: 8px;
+  padding-bottom: 4px;
 }
+.video-strip > * { flex-shrink: 0; }
+/* Centra si caben; si no caben, empieza desde la izquierda y hace scroll */
+.video-strip > :first-child { margin-left: auto; }
+.video-strip > :last-child { margin-right: auto; }
 .video-strip .video-tile {
   flex: 0 0 160px;
   width: 160px;
   aspect-ratio: 16 / 9;
   border-radius: 10px;
 }
+.video-strip .video-tile__flag { width: 20px; height: 20px; }
 .screen-thumb {
   position: relative;
   flex: 0 0 160px;
@@ -285,3 +334,24 @@
   cursor: default;
 }
 .video-stage[data-theater="true"] .video-strip { flex: 0 0 auto; }
+
+/* ---------- Modo cine con muchas personas: columna lateral derecha ---------- */
+.video-stage[data-theater="true"][data-crowded="true"] { flex-direction: row; }
+.video-stage[data-theater="true"][data-crowded="true"] .screen-main { min-width: 0; }
+.video-stage[data-theater="true"][data-crowded="true"] .video-strip {
+  flex: 0 0 176px;
+  width: 176px;
+  flex-direction: column;
+  align-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 0;
+}
+.video-stage[data-theater="true"][data-crowded="true"] .video-strip > * { margin: 0; }
+/* En columna, flex-basis sería el alto: se fija el ancho y el alto sale del aspect-ratio */
+.video-stage[data-theater="true"][data-crowded="true"] .video-strip .video-tile,
+.video-stage[data-theater="true"][data-crowded="true"] .video-strip .screen-thumb {
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 160px;
+}

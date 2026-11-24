@@ -5,6 +5,8 @@ import {
   GetPersonalChannelCode,
   SwitchToCanal,
   ConnectToPeer,
+  LeaveChannel,
+  DeleteChannel,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 
@@ -12,7 +14,7 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
  * Historial de canales recientes. Permite cambiar de canal (sin conectar)
  * o conectarse directamente a uno.
  */
-export function useChannels({ onSwitch, notify, p2pStatus, connectedCodes = [] }) {
+export function useChannels({ onSwitch, onDeleted, notify, p2pStatus, connectedCodes = [] }) {
   const [channels, setChannels] = useState([]);
   const [personalCode, setPersonalCode] = useState('');
   const [selectedCode, setSelectedCode] = useState('');
@@ -56,6 +58,8 @@ export function useChannels({ onSwitch, notify, p2pStatus, connectedCodes = [] }
         const res = await SwitchToCanal(codigo);
         if (res === 'OK') {
           setSelectedCode(codigo);
+          // Al entrar al canal, quitar el «…» de «conectando» de esa fila
+          setConnectingCodes((current) => current.filter((item) => item !== codigo));
           if (onSwitch) onSwitch();
         } else {
           notify(res, 'error');
@@ -86,6 +90,10 @@ export function useChannels({ onSwitch, notify, p2pStatus, connectedCodes = [] }
         const res = await ConnectToPeer(codigo);
         if (res && res.startsWith('Solicitud enviada')) {
           notify(`Conectando a ${codigo}...`, 'success');
+          // Si el otro lado no responde, liberar el botón tras 20 s (si no, se queda en «…»)
+          setTimeout(() => {
+            setConnectingCodes((current) => current.filter((item) => item !== codigo));
+          }, 20000);
         } else if (res && res.startsWith('Ya estás conectado')) {
           setConnectingCodes((current) => current.filter((item) => item !== codigo));
           notify(res, 'success');
@@ -105,5 +113,49 @@ export function useChannels({ onSwitch, notify, p2pStatus, connectedCodes = [] }
     [notify, connectedCodes, connectingCodes]
   );
 
-  return { channels, personalCode, selectedCode, connectingCodes, refresh, switchTo, connectTo };
+  // Abandonar: corta la conexión con el canal; el canal y su historial se quedan en la lista
+  const leave = useCallback(
+    async (codigo) => {
+      try {
+        const res = await LeaveChannel(codigo);
+        if (res === 'OK') {
+          setConnectingCodes((current) => current.filter((item) => item !== codigo));
+          notify(`Has abandonado el canal ${codigo}`, 'success');
+          refresh();
+        } else {
+          notify(res, 'error');
+        }
+      } catch (err) {
+        notify(`No se pudo abandonar el canal: ${err}`, 'error');
+      }
+    },
+    [notify, refresh]
+  );
+
+  // Borrar: abandona (si estaba conectado) y elimina el canal con todo su historial
+  const remove = useCallback(
+    async (codigo) => {
+      const wasSelected = codigo === selectedCode;
+      try {
+        const res = await DeleteChannel(codigo);
+        if (res !== 'OK') {
+          notify(res, 'error');
+          return;
+        }
+        setConnectingCodes((current) => current.filter((item) => item !== codigo));
+        if (onDeleted) onDeleted(codigo);
+        // Si era el canal visible, Go ya pasó a otro: resincronizar selección, chat y usuarios
+        const current = await GetCurrentChannelCode();
+        setSelectedCode(current || '');
+        refresh();
+        if (wasSelected && onSwitch) onSwitch();
+        notify('Canal borrado', 'success');
+      } catch (err) {
+        notify(`No se pudo borrar el canal: ${err}`, 'error');
+      }
+    },
+    [notify, refresh, selectedCode, onSwitch, onDeleted]
+  );
+
+  return { channels, personalCode, selectedCode, connectingCodes, refresh, switchTo, connectTo, leave, remove };
 }

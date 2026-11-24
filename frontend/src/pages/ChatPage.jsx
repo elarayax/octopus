@@ -34,6 +34,7 @@ export default function ChatPage() {
       chat.reload();
       users.refresh();
     },
+    onDeleted: (code) => mutedChannels.forget(code),
     notify,
     p2pStatus: p2p.status,
     connectedCodes: p2p.peers,
@@ -99,6 +100,16 @@ export default function ChatPage() {
 
   // Cuántas personas MÁS (además de ti) están en la llamada de voz
   const othersInCall = call.members.filter((n) => peers.some((p) => p.name === n)).length;
+
+  // Estado de micrófono / audio silenciado de quienes están en la llamada de voz.
+  // Los demás vienen de la red (call.voiceStates); el tuyo, del estado local.
+  const voiceStates = useMemo(() => {
+    const states = { ...call.voiceStates };
+    if (call.active && selfName) {
+      states[selfName] = { muted: call.muted, deafened: call.deafened };
+    }
+    return states;
+  }, [call.voiceStates, call.active, call.muted, call.deafened, selfName]);
 
   // ---- Pestañas Canales | Usuarios (se recuerda la última) ----
   const [sidebarTab, setSidebarTab] = useState(() => {
@@ -166,6 +177,8 @@ export default function ChatPage() {
               connectingCodes={channels.connectingCodes}
               onSwitch={channels.switchTo}
               onConnect={channels.connectTo}
+              onLeave={channels.leave}
+              onDelete={channels.remove}
               mutedCodes={mutedChannels.muted}
               onToggleMute={mutedChannels.toggle}
               status={p2p.status}
@@ -178,6 +191,7 @@ export default function ChatPage() {
               speaking={call.active && call.remoteSpeaking}
               query={query}
               callMembers={call.members}
+              memberStates={call.voiceStates}
               selfInCall={call.active}
               selfMuted={call.muted}
               selfDeafened={call.deafened}
@@ -217,6 +231,7 @@ export default function ChatPage() {
               participants={participants}
               avatars={users.avatarByName}
               selfName={selfName}
+              voiceStates={voiceStates}
               cfg={mods.layout.video}
             />
             <ChatHistory

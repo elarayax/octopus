@@ -34,5 +34,11 @@ export function useMutedChannels() {
     setMuted((cur) => (cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code]));
   }, []);
 
-  return { muted, isMuted, toggle };
+  // Olvidar un canal (p. ej. al borrarlo): sale de la lista de silenciados
+  const forget = useCallback((code) => {
+    if (!code) return;
+    setMuted((cur) => cur.filter((c) => c !== code));
+  }, []);
+
+  return { muted, isMuted, toggle, forget };
 }

@@ -8,7 +8,9 @@ export function useToast(duration = 3000) {
     (message, type = 'info') => {
       clearTimeout(timerRef.current);
       setToast({ message, type });
-      timerRef.current = setTimeout(() => setToast(null), duration);
+      // Los mensajes largos necesitan más tiempo de lectura (≈ 50 ms por carácter, máx. 9 s)
+      const ms = Math.max(duration, Math.min(9000, String(message ?? '').length * 50));
+      timerRef.current = setTimeout(() => setToast(null), ms);
     },
     [duration]
   );

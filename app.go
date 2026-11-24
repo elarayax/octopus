@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -28,22 +29,24 @@ type Message struct {
 }
 
 type Packet struct {
-	Type    string `json:"type"` // "text", "audio", "hello", "avatar", "bye", "image", "video", "history_req", "history", "roster", "channel"
-	Sender  string `json:"sender"`
-	Text    string `json:"text,omitempty"`
-	Audio   string `json:"audio,omitempty"`   // base64 encoded PCM chunk
-	Code    string `json:"code,omitempty"`    // código fijo del equipo emisor
-	Avatar  string `json:"avatar,omitempty"`  // base64 del WebP (estático o animado)
-	Image   string `json:"image,omitempty"`   // base64 del WebP de chat
-	History string `json:"history,omitempty"` // JSON con mensajes para sincronizar
-	Online  bool   `json:"online,omitempty"`  // roster: si el miembro está activo
-	Channel string `json:"channel,omitempty"` // JSON con ChannelInfo (solo el host)
-	Video   string `json:"video,omitempty"`   // frame JPEG en base64 (videollamada)
-	Kind    string `json:"kind,omitempty"`    // video: "cam" (por defecto) o "screen"
-	MsgID   string `json:"msgId,omitempty"`   // text/image/reaction: uid del mensaje
-	ReplyTo string `json:"replyTo,omitempty"` // text/image: uid del mensaje respondido
-	Emoji   string `json:"emoji,omitempty"`   // reaction
-	Add     bool   `json:"add,omitempty"`
+	Type     string `json:"type"` // "text", "audio", "hello", "avatar", "bye", "image", "video", "history_req", "history", "roster", "channel"
+	Sender   string `json:"sender"`
+	Text     string `json:"text,omitempty"`
+	Audio    string `json:"audio,omitempty"`   // base64 encoded PCM chunk
+	Code     string `json:"code,omitempty"`    // código fijo del equipo emisor
+	Avatar   string `json:"avatar,omitempty"`  // base64 del WebP (estático o animado)
+	Image    string `json:"image,omitempty"`   // base64 del WebP de chat
+	History  string `json:"history,omitempty"` // JSON con mensajes para sincronizar
+	Online   bool   `json:"online,omitempty"`  // roster: si el miembro está activo
+	Channel  string `json:"channel,omitempty"` // JSON con ChannelInfo (solo el host)
+	Video    string `json:"video,omitempty"`   // frame JPEG en base64 (videollamada)
+	Kind     string `json:"kind,omitempty"`    // video: "cam" (por defecto) o "screen"
+	MsgID    string `json:"msgId,omitempty"`   // text/image/reaction: uid del mensaje
+	ReplyTo  string `json:"replyTo,omitempty"` // text/image: uid del mensaje respondido
+	Emoji    string `json:"emoji,omitempty"`   // reaction
+	Add      bool   `json:"add,omitempty"`
+	Muted    bool   `json:"muted,omitempty"`    // call: micrófono silenciado
+	Deafened bool   `json:"deafened,omitempty"` // call: audio silenciado (ensordecido)
 }
 
 // ChannelInfo es la identidad del canal que muestra el header
@@ -81,6 +84,8 @@ type App struct {
 	db               *sql.DB
 	mu               sync.Mutex
 	inCall           bool
+	callMuted        bool
+	callDeafened     bool
 	callSet          map[string]bool
 	unread           int
 	notifyReady      bool
@@ -205,6 +210,102 @@ func (a *App) SwitchToCanal(codigo string) string {
 	runtime.WindowSetTitle(a.ctx, info.Nombre)
 	runtime.EventsEmit(a.ctx, "channel_info", info)
 	runtime.EventsEmit(a.ctx, "channel_switched", codigo)
+	return "OK"
+}
+
+// isOwnChannel indica si el código es el de este equipo (canal personal).
+func (a *App) isOwnChannel(codigo string) bool {
+	a.mu.Lock()
+	my := a.myCode
+	a.mu.Unlock()
+	return codigo != "" && (codigo == my || codigo == getOrCreateFixedCode())
+}
+
+// leavePeer cierra la conexión con el canal (peer) indicado y avisa de que nos
+// fuimos. Si no había conexión, solo emite peer_disconnected para que la UI
+// limpie cualquier estado "conectando" que se haya quedado colgado.
+func (a *App) leavePeer(codigo string) {
+	a.mu.Lock()
+	session, connected := a.peers[codigo]
+	me, myName := a.myCode, a.username
+	a.mu.Unlock()
+
+	if connected {
+		// Despedirse antes de cerrar: así el otro lado nos marca como
+		// desconectados al instante (y lo retransmite al resto del canal).
+		if session != nil && session.dc != nil && session.dc.ReadyState() == webrtc.DataChannelStateOpen {
+			if raw, err := json.Marshal(Packet{Type: "bye", Sender: myName, Code: me}); err == nil {
+				_ = session.dc.SendText(string(raw))
+				// Cerrar de inmediato descartaría el mensaje aún en cola
+				time.Sleep(150 * time.Millisecond)
+			}
+		}
+		a.removePeer(codigo)
+	}
+	runtime.EventsEmit(a.ctx, "peer_disconnected", codigo)
+}
+
+// LeaveChannel abandona un canal: cierra la conexión con él y avisa a los
+// demás. El canal y su historial se conservan en la lista (se puede volver a
+// entrar con Play); para eliminarlos está DeleteChannel.
+func (a *App) LeaveChannel(codigo string) string {
+	codigo = strings.TrimSpace(codigo)
+	if codigo == "" {
+		return "Código vacío"
+	}
+	if codigo == "LOCAL" || a.isOwnChannel(codigo) {
+		return "Este canal es tuyo: no hay conexión que abandonar."
+	}
+	a.leavePeer(codigo)
+	return "OK"
+}
+
+// DeleteChannel abandona el canal (si estaba conectado) y lo elimina de este
+// equipo junto con todo su historial. No afecta a los demás miembros. No se
+// pueden borrar el canal LOCAL ni el canal personal.
+func (a *App) DeleteChannel(codigo string) string {
+	codigo = strings.TrimSpace(codigo)
+	if codigo == "" {
+		return "Código vacío"
+	}
+	if codigo == "LOCAL" {
+		return "El canal local no se puede borrar."
+	}
+	if a.isOwnChannel(codigo) {
+		return "No puedes borrar tu canal personal."
+	}
+	if a.db == nil {
+		return "Error: la base de datos no está disponible"
+	}
+	id := a.canalIDByCodigo(codigo)
+	if id == 0 {
+		return "El canal ya no existe."
+	}
+
+	// Primero cortar la conexión, para que no lleguen mensajes nuevos a un
+	// canal que se está borrando
+	a.leavePeer(codigo)
+
+	if err := a.deleteCanal(id); err != nil {
+		return "Error borrando el canal: " + err.Error()
+	}
+
+	a.mu.Lock()
+	wasCurrent := a.currentChannelID == id
+	var info ChannelInfo
+	var newCode string
+	if wasCurrent {
+		// El canal visible desapareció: pasar al más reciente que quede
+		a.currentChannelID, newCode = a.fallbackCanal()
+		info = a.GetChannelInfo()
+	}
+	a.mu.Unlock()
+
+	if wasCurrent {
+		runtime.WindowSetTitle(a.ctx, info.Nombre)
+		runtime.EventsEmit(a.ctx, "channel_info", info)
+		runtime.EventsEmit(a.ctx, "channel_switched", newCode)
+	}
 	return "OK"
 }
 

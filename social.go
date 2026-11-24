@@ -62,21 +62,40 @@ func (a *App) applyReaction(msgID, user, emoji string, add bool) {
 
 // ---------- Estado de la llamada de voz ----------
 
-// SetCallState anuncia a los peers si estoy dentro de la llamada de voz
+// SetCallState anuncia a los peers si estoy dentro de la llamada de voz.
+// Al salir de la llamada se limpian las banderas de micrófono / audio silenciado.
 func (a *App) SetCallState(inCall bool) string {
 	a.mu.Lock()
 	a.inCall = inCall
+	if !inCall {
+		a.callMuted, a.callDeafened = false, false
+	}
+	me := a.username
+	code := a.myCode
+	muted, deafened := a.callMuted, a.callDeafened
+	a.mu.Unlock()
+	a.broadcastPacket(Packet{Type: "call", Sender: me, Code: code, Online: inCall, Muted: muted, Deafened: deafened})
+	return "OK"
+}
+
+// SetVoiceFlags anuncia a los peers si tengo el micrófono o el audio silenciados,
+// para que vean los íconos en mi tarjeta de video y en la lista de usuarios
+func (a *App) SetVoiceFlags(muted, deafened bool) string {
+	a.mu.Lock()
+	a.callMuted, a.callDeafened = muted, deafened
+	inCall := a.inCall
 	me := a.username
 	code := a.myCode
 	a.mu.Unlock()
-	a.broadcastPacket(Packet{Type: "call", Sender: me, Code: code, Online: inCall})
+	a.broadcastPacket(Packet{Type: "call", Sender: me, Code: code, Online: inCall, Muted: muted, Deafened: deafened})
 	return "OK"
 }
 
 // sendCallStateTo informa a un peer recién conectado de si estoy en la llamada
+// y de si tengo el micrófono o el audio silenciados
 func (a *App) sendCallStateTo(dc *webrtc.DataChannel) {
 	a.mu.Lock()
-	pkt := Packet{Type: "call", Sender: a.username, Code: a.myCode, Online: a.inCall}
+	pkt := Packet{Type: "call", Sender: a.username, Code: a.myCode, Online: a.inCall, Muted: a.callMuted, Deafened: a.callDeafened}
 	a.mu.Unlock()
 	if raw, err := json.Marshal(pkt); err == nil {
 		_ = dc.SendText(string(raw))

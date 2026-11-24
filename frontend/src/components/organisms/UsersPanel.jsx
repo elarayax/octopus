@@ -27,14 +27,18 @@ function UserRow({ user, speaking, muted, deafened, inCall }) {
 /**
  * Lista de usuarios: tú y los peers conectados primero, luego los conocidos
  * de sesiones anteriores. `speaking`: llega audio remoto en este momento
- * (el backend no dice quién habla, así que se marca a los peers conectados).
- * Tu fila muestra los íconos de micrófono silenciado / audio silenciado.
+ * (el backend no dice quién habla, así que se marca a los peers conectados
+ * que no tengan el micrófono silenciado).
+ * Íconos de micrófono silenciado / audio silenciado:
+ *  - tu fila usa selfMuted / selfDeafened
+ *  - las demás usan memberStates: { [nombre]: { muted, deafened } }
  */
 export function UsersPanel({
   users,
   speaking = false,
   query = '',
   callMembers = [],
+  memberStates = {},
   selfInCall = false,
   selfMuted = false,
   selfDeafened = false,
@@ -54,16 +58,22 @@ export function UsersPanel({
         </p>
       ) : (
         <ul className="users-panel__list">
-          {visible.map((u, i) => (
-            <UserRow
-              key={`${u.name}-${i}`}
-              user={u}
-              speaking={speaking && u.online && !u.self}
-              muted={u.self && selfInCall && selfMuted}
-              deafened={u.self && selfInCall && selfDeafened}
-              inCall={u.self ? selfInCall : callMembers.includes(u.name)}
-            />
-          ))}
+          {visible.map((u, i) => {
+            const inCall = u.self ? selfInCall : callMembers.includes(u.name);
+            const st = u.self ? null : memberStates[u.name];
+            const muted = u.self ? selfInCall && selfMuted : inCall && !!st?.muted;
+            const deafened = u.self ? selfInCall && selfDeafened : inCall && !!st?.deafened;
+            return (
+              <UserRow
+                key={`${u.name}-${i}`}
+                user={u}
+                speaking={speaking && u.online && !u.self && !muted}
+                muted={muted}
+                deafened={deafened}
+                inCall={inCall}
+              />
+            );
+          })}
         </ul>
       )}
     </section>

@@ -24,15 +24,68 @@ function Media({ item }) {
   return item.stream ? <StreamVideo stream={item.stream} /> : <img src={item.src} alt={item.name} />;
 }
 
+/** Íconos SVG pequeños (heredan el color con currentColor). */
+function MicOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}
+
+function HeadphonesOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 15v-3a8 8 0 0 1 16 0v3" />
+      <rect x="3" y="14" width="4" height="6" rx="1.5" />
+      <rect x="17" y="14" width="4" height="6" rx="1.5" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}
+
+/** Banderas de micrófono / audio silenciado sobre una tarjeta. */
+function VoiceFlags({ state }) {
+  if (!state || (!state.muted && !state.deafened)) return null;
+  return (
+    <span className="video-tile__flags">
+      {state.muted && (
+        <span className="video-tile__flag" title="Micrófono silenciado">
+          <MicOffIcon />
+        </span>
+      )}
+      {state.deafened && (
+        <span className="video-tile__flag" title="Audio silenciado">
+          <HeadphonesOffIcon />
+        </span>
+      )}
+    </span>
+  );
+}
+
 /**
  * Zona de videollamada estilo Discord.
  *  - Sin pantalla compartida: cuadrícula de cámaras / avatares.
  *  - Con pantalla compartida: aparece como tarjeta; clic = se abre grande sobre el chat,
  *    ⛶ = pantalla completa real, 🗗 = ventana flotante, Esc / ✕ = cerrar.
+ *  - Con muchas personas: modo compacto (vista normal) y columna lateral (modo cine).
  * Los mods de video solo afectan a las CÁMARAS (.video-tile, .video-tile--self, .video-tile__name,
  * .video-stage__camera). La pantalla compartida usa sus propias clases (.screen-*).
+ *
+ * voiceStates: { [nombre]: { muted, deafened } } de quienes están en la llamada de voz,
+ * incluido tú (ChatPage agrega tu propia entrada con selfName).
  */
-export function VideoStage({ video, screen, participants = [], avatars = {}, selfName = 'Tú', cfg }) {
+export function VideoStage({
+  video,
+  screen,
+  participants = [],
+  avatars = {},
+  selfName = 'Tú',
+  voiceStates = {},
+  cfg,
+}) {
   const { mode = 'grid', shape = 'rounded', mirror = true, showNames = true } = cfg || {};
   const [focusKey, setFocusKey] = useState(null);
   const [theater, setTheater] = useState(false);
@@ -71,6 +124,10 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
       );
     return { screens, tiles };
   }, [video?.remote, video?.stream, screen?.on, screen?.stream, participants, avatars, selfName]);
+
+  // Muchas tarjetas: modo compacto (vista normal) y columna lateral (modo cine)
+  const compact = tiles.length > 4 || (screens.length > 0 && tiles.length > 2);
+  const crowded = tiles.length + Math.max(screens.length - 1, 0) > 4;
 
   const focused = screens.find((s) => s.key === focusKey) || screens[0] || null;
 
@@ -123,11 +180,13 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
   );
 
   const renderTile = (t) => {
+    const flags = <VoiceFlags state={voiceStates[t.name]} />;
     if (t.isAvatar) {
       return (
         <div className="video-tile video-tile--avatar" key={t.key}>
-          <Avatar name={t.name} src={t.avatar} size={64} />
+          <Avatar name={t.name} src={t.avatar} size={compact ? 44 : 64} />
           {showNames && <span className="video-tile__name">{t.name}</span>}
+          {flags}
         </div>
       );
     }
@@ -135,6 +194,7 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
       <div className={`video-tile ${t.self ? 'video-tile--self' : ''}`} key={t.key}>
         <Media item={t} />
         {showNames && <span className="video-tile__name">{t.name}</span>}
+        {flags}
       </div>
     );
   };
@@ -147,7 +207,13 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
   // ---------- Normal: cuadrícula con tarjetas de transmisión + cámaras ----------
   if (!theater || !focused) {
     return (
-      <section className="video-stage" data-mode={mode} data-shape={shape} data-mirror={String(mirror)}>
+      <section
+        className="video-stage"
+        data-mode={mode}
+        data-shape={shape}
+        data-mirror={String(mirror)}
+        data-compact={String(compact)}
+      >
         {camSelect}
         {screens.map((s) => (
           <div
@@ -194,6 +260,7 @@ export function VideoStage({ video, screen, participants = [], avatars = {}, sel
       data-mirror={String(mirror)}
       data-focus="true"
       data-theater="true"
+      data-crowded={String(crowded)}
     >
       <div className="screen-main" ref={mainRef}>
         <Media item={focused} />

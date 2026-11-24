@@ -165,3 +165,86 @@
 .channel-row__mute:focus-visible,
 .channel-row__connect:focus-visible,
 .channel-row__mute.is-on { pointer-events: auto; }
+
+/* ---------- Acciones de la fila de canal: silenciar · conectar · abandonar · borrar ----------
+   Van dentro de un contenedor flotante a la derecha, así que se reparten el espacio solas
+   sin importar cuántas haya (abandonar solo aparece con conexión; borrar no existe en el
+   canal personal ni en el LOCAL). */
+.channel-row__actions {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none; /* el contenedor no captura clics: cada botón decide */
+}
+.channel-row .channel-row__actions .channel-row__mute,
+.channel-row .channel-row__actions .channel-row__connect {
+  position: static;
+  transform: none;
+  margin: 0;
+}
+.channel-row__action {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+.channel-row:hover .channel-row__action,
+.channel-row:focus-within .channel-row__action { opacity: 1; pointer-events: auto; }
+.channel-row__action:hover { background: var(--color-secondary); color: var(--color-text); }
+.channel-row__action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.channel-row__delete:hover { background: rgb(224 72 90 / 16%); color: var(--color-danger); }
+/* Al pasar el mouse el texto cede el sitio justo a los botones que hay en esa fila */
+.channel-row:hover .channel-row__main,
+.channel-row:focus-within .channel-row__main { padding-right: var(--row-actions, 72px); }
+
+/* Confirmación de borrado en la propia fila */
+.channel-row--confirm {
+  border-color: rgb(224 72 90 / 45%);
+  background-color: rgb(224 72 90 / 8%);
+}
+.channel-row--confirm:hover { background-color: rgb(224 72 90 / 8%); }
+.channel-row__confirm {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.channel-row__confirm-text {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.channel-row__confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ---------- FIX: el Play se comporta igual que campana / abandonar / borrar ----------
+   Otra regla lo dejaba en opacity: 1 en las filas "conectando" o "conectada", por eso se
+   quedaba fijo en la fila. Aquí vuelve a mostrarse solo al pasar el mouse o con foco de teclado. */
+.channel-row .channel-row__actions .channel-row__connect {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.channel-row:hover .channel-row__actions .channel-row__connect,
+.channel-row:focus-within .channel-row__actions .channel-row__connect {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+/* Conectando o conectada: el botón sigue deshabilitado, no se debe poder pulsar de nuevo */
+.channel-row .channel-row__actions .channel-row__connect:disabled { pointer-events: none !important; }
